@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Rebuild the vector index from all sources (wiki, FAQ, commit reviews, Discord
- * captures). Safe to re-run: incremental by content hash, only new/changed
- * chunks are embedded.
+ * Rebuild the vector index from all sources (wiki, vendor PDF/AAR, FAQ, commit
+ * reviews, Discord captures). Safe to re-run: incremental by content hash, only
+ * new/changed chunks are embedded.
  *
  * Usage: node scripts/reindex-knowledge.js
  */
