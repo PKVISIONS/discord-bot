@@ -85,6 +85,13 @@ function knowledgeStatus() {
     parts.push('capture off');
   }
 
+  try {
+    const { vendorIngestStatus } = require('./lib/discord-vendor-ingest');
+    parts.push(vendorIngestStatus());
+  } catch {
+    parts.push('vendor ingest n/a');
+  }
+
   if (process.env.KNOWLEDGE_REVIEW_CHANNEL) parts.push('review on');
   if (process.env.ANSWER_VERIFY === 'true') parts.push('verify on');
   return parts.join(' | ');
@@ -242,6 +249,7 @@ const {
 } = require('./lib/github-issue-flow');
 const { deliverSalesSupportResult, tryHandleSalesSupportSourceReply } = require('./lib/sales-support-delivery');
 const { captureMessage, isCaptureEnabled } = require('./lib/discord-capture-log');
+const { processMessageAttachments, isVendorIngestEnabled } = require('./lib/discord-vendor-ingest');
 const {
   handleSolveReaction,
   handleKbSaveCommand,
@@ -911,6 +919,25 @@ client.on('messageCreate', async (message) => {
       }
     } catch (error) {
       console.error('[capture] failed to log message:', error.message);
+    }
+  }
+
+  // Vendor docs: download zip/PDF/AAR attachments from knowledge channels.
+  if (isVendorIngestEnabled() && !isDM) {
+    try {
+      const ingested = await processMessageAttachments(message);
+      for (const result of ingested) {
+        if (result.skipped) {
+          console.log(`[vendor-ingest] skipped existing package ${result.package.id}`);
+        } else {
+          console.log(
+            `[vendor-ingest] indexed ${result.package.attachmentName} `
+            + `(${result.package.files.length} files) from #${result.package.channelName}`,
+          );
+        }
+      }
+    } catch (error) {
+      console.error('[vendor-ingest] failed:', error.message);
     }
   }
 
