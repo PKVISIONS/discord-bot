@@ -1,0 +1,71 @@
+{
+  "_comment": "Auto-escalation for unanswered questions in QA/build channels. Routing uses ROLE NAMES (exact Discord role name, same convention as DEPLOY_ROLES in discord-bridge.js) — NOT user IDs. Channel IDs resolve automatically by the \"name\" field when the bot starts (or set ESCALATION_CHANNEL_{name}=id in .env). Enable with ESCALATION_ENABLED=true. questionsOnly=true tracks only messages that look like questions (?, hashtags, question words).",
+  "escalationMinutes": 40,
+  "resolvedEmoji": "✅",
+  "questionsOnly": true,
+  "channels": {
+    "1520007904705384470": {
+      "name": "general",
+      "includeThreads": true,
+      "defaultOwnerRole": "Developer",
+      "routingRules": [
+        { "label": "Sunmi / hardware συσκευές", "tag": "hardware", "keywords": ["sunmi", "pax", "p2 se", "p3 mix", "hardware"], "ownerRole": "Hardware" },
+        { "label": "Production εκδόσεις", "tag": "production", "keywords": ["production", "play store", "playstore", "live"], "ownerRole": "Developer" },
+        { "label": "Refactor / νέα βάση", "tag": "refactor", "keywords": ["refactor", "νεα βαση", "rewrite"], "ownerRole": "Developer" }
+      ]
+    },
+    "REPLACE_WITH_TAMEIAKI_TESTING_CHANNEL_ID": {
+      "name": "tameiaki-testing",
+      "includeThreads": true,
+      "defaultOwnerRole": "Developer",
+      "routingRules": [
+        { "label": "Production εκδόσεις", "tag": "production", "keywords": ["production", "play store", "playstore", "live"], "ownerRole": "Developer" },
+        { "label": "Refactor / νέα βάση", "tag": "refactor", "keywords": ["refactor", "νεα βαση", "rewrite"], "ownerRole": "Developer" },
+        { "label": "Sunmi / hardware συσκευές", "tag": "hardware", "keywords": ["sunmi", "pax", "p2 se", "p3 mix"], "ownerRole": "Developer" }
+      ]
+    },
+    "REPLACE_WITH_FEATURES_CHANNEL_ID": {
+      "name": "features",
+      "includeThreads": true,
+      "defaultOwnerRole": "Developer",
+      "routingRules": [
+        { "label": "Production εκδόσεις", "tag": "production", "keywords": ["production", "play store", "playstore", "live"], "ownerRole": "Developer" },
+        { "label": "Refactor / νέα βάση", "tag": "refactor", "keywords": ["refactor", "νεα βαση", "rewrite"], "ownerRole": "Developer" }
+      ]
+    },
+    "REPLACE_WITH_ANDROID_CHANNEL_ID": {
+      "name": "android",
+      "includeThreads": false,
+      "defaultOwnerRole": "Developer",
+      "routingRules": [
+        { "label": "Production εκδόσεις", "tag": "production", "keywords": ["production", "play store", "playstore", "live"], "ownerRole": "Developer" },
+        { "label": "Refactor / νέα βάση", "tag": "refactor", "keywords": ["refactor", "νεα βαση", "rewrite"], "ownerRole": "Developer" },
+        { "label": "Sunmi / hardware συσκευές", "tag": "hardware", "keywords": ["sunmi", "pax", "p2 se", "p3 mix"], "ownerRole": "Developer" }
+      ]
+    },
+    "REPLACE_WITH_TAMEIAKI_IOS_CHANNEL_ID": {
+      "name": "tameiaki-ios",
+      "includeThreads": false,
+      "defaultOwnerRole": "Developer",
+      "routingRules": []
+    },
+    "REPLACE_WITH_POS_SEMANTIC_CHANNEL_ID": {
+      "name": "pos-semantic",
+      "includeThreads": false,
+      "defaultOwnerRole": "Developer",
+      "routingRules": [
+        { "label": "Cardlink", "tag": "cardlink", "keywords": ["cardlink"], "ownerRole": "Developer" },
+        { "label": "Nexi", "tag": "nexi", "keywords": ["nexi", "pax terminal"], "ownerRole": "Developer" },
+        { "label": "Epay / γενικές τράπεζες", "tag": "epay", "keywords": ["epay", "τραπεζα", "τραπεζικο"], "ownerRole": "Developer" }
+      ]
+    },
+    "REPLACE_WITH_PRINTERS_CHANNEL_ID": {
+      "name": "Θέματα εκτυπώσεων",
+      "includeThreads": false,
+      "defaultOwnerRole": "Developer",
+      "routingRules": [
+        { "label": "Εκτυπώσεις", "tag": "εκτυπωσεις", "keywords": ["εκτυπωση", "printer", "print"], "ownerRole": "Developer" }
+      ]
+    }
+  }
+}

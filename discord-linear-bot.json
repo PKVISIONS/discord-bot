@@ -1,0 +1,772 @@
+{
+  "name": "Discord → Linear Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "discord-linear-bot",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Discord Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "discord-linear-bot"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-mention",
+              "leftValue": "={{ $json.body?.type ?? $json.type ?? 0 }}",
+              "rightValue": "1",
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-ping",
+      "name": "Filter Out Pings",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ type: 1 }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-ping",
+      "name": "Respond to Ping",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [460, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the user's message content from the Discord interaction\nconst root = $input.first().json;\nconst body = root.body || root;\n\nlet userMessage = '';\nlet channelId = '';\nlet userId = '';\nlet username = '';\n\nif (body.data && body.data.options) {\n  const textOption = body.data.options.find((o) => o.name === 'command');\n  userMessage = textOption ? textOption.value : '';\n} else if (body.content) {\n  userMessage = body.content.replace(/<@!?\\d+>\\s*/g, '').trim();\n} else if (body.data && body.data.resolved) {\n  userMessage = body.data.name || '';\n}\n\nchannelId = body.channel_id || body.channel?.id || '';\nuserId = body.member?.user?.id || body.user?.id || '';\nusername = body.member?.user?.username || body.user?.username || 'Unknown';\n\nreturn [{\n  json: {\n    userMessage,\n    channelId,\n    userId,\n    username,\n    source: body.source || 'discord',\n    rawBody: body,\n  }\n}];"
+      },
+      "id": "extract-message",
+      "name": "Extract Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-sonnet-4-6",
+        "options": {},
+        "messages": {
+          "values": [
+            {
+              "content": "You are a Linear project management assistant. Parse the user's natural language command and return a JSON object with the action to perform.\n\nSupported actions:\n- create_issue: Create a new issue\n- update_status: Update an issue's status\n- assign_issue: Assign an issue to a team member\n- add_comment: Add a comment to an issue\n- search_issues: Search for issues\n\nReturn ONLY valid JSON, no explanation. Format:\n{\n  \"action\": \"create_issue\" | \"update_status\" | \"assign_issue\" | \"add_comment\" | \"search_issues\",\n  \"params\": {\n    // For create_issue:\n    \"title\": \"string\",\n    \"description\": \"string (optional)\",\n    \"priority\": \"urgent\" | \"high\" | \"medium\" | \"low\" | \"no_priority\" (optional),\n    \"assignee\": \"username or email (optional)\",\n    \"team\": \"team name (optional)\",\n    \n    // For update_status:\n    \"issue_id\": \"e.g. ENG-123 (if mentioned)\",\n    \"title_hint\": \"partial title if no ID given\",\n    \"status\": \"Todo\" | \"In Progress\" | \"In Review\" | \"Done\" | \"Cancelled\",\n    \n    // For assign_issue:\n    \"issue_id\": \"e.g. ENG-123 (if mentioned)\",\n    \"title_hint\": \"partial title if no ID given\",\n    \"assignee\": \"username or email\",\n    \n    // For add_comment:\n    \"issue_id\": \"e.g. ENG-123 (if mentioned)\",\n    \"title_hint\": \"partial title if no ID given\",\n    \"comment\": \"comment text\",\n    \n    // For search_issues:\n    \"query\": \"search query string\",\n    \"status_filter\": \"optional status filter\",\n    \"assignee_filter\": \"optional assignee filter\"\n  },\n  \"confidence\": 0.0-1.0,\n  \"clarification_needed\": \"string or null - ask user if command is ambiguous\"\n}"
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.userMessage }}"
+            }
+          ]
+        }
+      },
+      "id": "ai-parse-command",
+      "name": "AI: Parse Command",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiResponse = $input.first().json.text || $input.first().json.content?.[0]?.text || '';\n\nlet parsed;\ntry {\n  // Strip markdown code fences if present\n  const clean = aiResponse.replace(/```json\\n?|```/g, '').trim();\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = {\n    action: 'error',\n    error: 'Could not parse command. Try: \"create issue Fix login bug\" or \"update ENG-123 to In Progress\"'\n  };\n}\n\n// Pass through original context\nconst original = $('Extract Message').first().json;\n\nreturn [{\n  json: {\n    ...parsed,\n    userMessage: original.userMessage,\n    channelId: original.channelId,\n    userId: original.userId,\n    username: original.username\n  }\n}];"
+      },
+      "id": "parse-ai-response",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "route-action",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "create_issue",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-create",
+      "name": "Is Create Issue?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 160]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "route-update",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "update_status",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-update",
+      "name": "Is Update Status?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "route-search",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "search_issues",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-search",
+      "name": "Is Search?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 440]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "route-assign",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "assign_issue",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "route-assign",
+      "name": "Is Assign?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 580]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linear.app/graphql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "mutation CreateIssue($title: String!, $description: String, $teamId: String!) {\n  issueCreate(input: {\n    title: $title\n    description: $description\n    teamId: $teamId\n  }) {\n    success\n    issue {\n      id\n      identifier\n      title\n      url\n      state { name }\n      priority\n    }\n  }\n}"
+            },
+            {
+              "name": "variables",
+              "value": "={{ JSON.stringify({ title: $json.params.title, description: $json.params.description || '', teamId: $vars.LINEAR_TEAM_ID }) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "linear-create-issue",
+      "name": "Linear: Create Issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1580, 160],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "linear-api-key",
+          "name": "Linear API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linear.app/graphql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "query SearchIssues($query: String!) {\n  issueSearch(query: $query, first: 10) {\n    nodes {\n      id\n      identifier\n      title\n      state { name }\n      assignee { name email }\n      priority\n      url\n    }\n  }\n}"
+            },
+            {
+              "name": "variables",
+              "value": "={{ JSON.stringify({ query: $json.params.query }) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "linear-search",
+      "name": "Linear: Search Issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1580, 440],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "linear-api-key",
+          "name": "Linear API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linear.app/graphql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "query FindWorkflowStates($teamId: String!) {\n  team(id: $teamId) {\n    states {\n      nodes {\n        id\n        name\n      }\n    }\n  }\n}\n"
+            },
+            {
+              "name": "variables",
+              "value": "={{ JSON.stringify({ teamId: $vars.LINEAR_TEAM_ID }) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "linear-get-states",
+      "name": "Linear: Get States",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1580, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "linear-api-key",
+          "name": "Linear API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linear.app/graphql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": [
+          {
+            "name": "query",
+            "value": "query GetTeamMembers($teamId: String!) {\n  team(id: $teamId) {\n    members {\n      nodes {\n        id\n        name\n        email\n      }\n    }\n  }\n}"
+          },
+          {
+            "name": "variables",
+            "value": "={{ JSON.stringify({ teamId: $vars.LINEAR_TEAM_ID }) }}"
+          }
+        ],
+        "options": {}
+      },
+      "id": "linear-get-members",
+      "name": "Linear: Get Team Members",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1580, 580],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "linear-api-key",
+          "name": "Linear API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format a nice Discord response for \"create issue\" result\nconst result = $input.first().json;\nconst issue = result.data?.issueCreate?.issue;\nconst originalAction = $('Parse AI Response').first().json;\n\nif (!issue) {\n  return [{ json: { message: '❌ Failed to create issue. Please check your Linear API key and Team ID.' } }];\n}\n\nconst priorityEmoji = {\n  0: '⚪', // no priority\n  1: '🔴', // urgent\n  2: '🟠', // high\n  3: '🟡', // medium\n  4: '🔵'  // low\n};\n\nconst emoji = priorityEmoji[issue.priority] || '⚪';\n\nreturn [{\n  json: {\n    message: `✅ **Issue Created!**\\n\\n${emoji} **[${issue.identifier}](${issue.url})** ${issue.title}\\n📋 Status: ${issue.state?.name || 'Backlog'}\\n\\n*Created by @${originalAction.username}*`\n  }\n}];"
+      },
+      "id": "format-create-response",
+      "name": "Format: Created",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1820, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Find the matching state and update the issue\nconst statesResult = $input.first().json;\nconst originalAction = $('Parse AI Response').first().json;\n\nconst states = statesResult.data?.team?.states?.nodes || [];\nconst targetStatus = originalAction.params?.status || '';\n\nconst matchedState = states.find((s) =>\n  s.name.toLowerCase() === targetStatus.toLowerCase() ||\n  s.name.toLowerCase().includes(targetStatus.toLowerCase()),\n);\n\nif (!matchedState) {\n  const available = states.map((s) => s.name).join(', ');\n  return [{ json: {\n    message: `❌ Status \"${targetStatus}\" not found.\\nAvailable statuses: ${available}`,\n    skip: true,\n  }}];\n}\n\nreturn [{\n  json: {\n    stateId: matchedState.id,\n    stateName: matchedState.name,\n    issueIdentifier: originalAction.params?.issue_id,\n    titleHint: originalAction.params?.title_hint,\n    username: originalAction.username,\n    skip: false,\n  }\n}];"
+      },
+      "id": "match-state",
+      "name": "Match State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1820, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format search results for Discord\nconst result = $input.first().json;\nconst issues = result.data?.issueSearch?.nodes || [];\nconst originalAction = $('Parse AI Response').first().json;\n\nif (issues.length === 0) {\n  return [{ json: { message: `🔍 No issues found for: \"${originalAction.params?.query}\"` } }];\n}\n\nconst priorityLabel = { 0: 'None', 1: '🔴 Urgent', 2: '🟠 High', 3: '🟡 Medium', 4: '🔵 Low' };\n\nconst lines = issues.slice(0, 8).map(issue => {\n  const assignee = issue.assignee?.name || 'Unassigned';\n  const priority = priorityLabel[issue.priority] || 'None';\n  return `• **[${issue.identifier}](${issue.url})** ${issue.title}\\n  └ ${issue.state?.name} · ${assignee} · ${priority}`;\n}).join('\\n\\n');\n\nreturn [{\n  json: {\n    message: `🔍 **Found ${issues.length} issue(s)** for \"${originalAction.params?.query}\":\\n\\n${lines}${issues.length > 8 ? `\\n\\n*...and ${issues.length - 8} more*` : ''}`\n  }\n}];"
+      },
+      "id": "format-search-response",
+      "name": "Format: Search Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1820, 440]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Find the assignee from team members list\nconst membersResult = $input.first().json;\nconst originalAction = $('Parse AI Response').first().json;\n\nconst members = membersResult.data?.team?.members?.nodes || [];\nconst targetAssignee = (originalAction.params?.assignee || '').trim();\nconst discordUser = (originalAction.username || '').trim();\n\nconst matchedMember = members.find((m) => {\n  const name = (m.name || '').toLowerCase();\n  const email = (m.email || '').toLowerCase();\n  const emailUser = email.split('@')[0] || '';\n  const t = targetAssignee.toLowerCase();\n  const d = discordUser.toLowerCase();\n  return (\n    (t && (name.includes(t) || email.includes(t) || emailUser.includes(t))) ||\n    (d && (name.includes(d) || emailUser === d || email.includes(d)))\n  );\n});\n\nif (!matchedMember) {\n  const names = members.map((m) => `${m.name}${m.email ? ` (${m.email})` : ''}`).join(', ');\n  return [{ json: {\n    message: `❌ Team member \"${targetAssignee || discordUser}\" not found.\\nTeam members: ${names || 'none'}`,\n    skip: true,\n  }}];\n}\n\nreturn [{\n  json: {\n    assigneeId: matchedMember.id,\n    assigneeName: matchedMember.name,\n    issueIdentifier: originalAction.params?.issue_id,\n    titleHint: originalAction.params?.title_hint,\n    username: originalAction.username,\n    skip: false,\n  }\n}];"
+      },
+      "id": "match-assignee",
+      "name": "Match Assignee",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1820, 580]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle add_comment and error/unknown actions\nconst action = $json.action;\nconst params = $json.params || {};\n\nif (action === 'add_comment') {\n  return [{ json: { \n    action: 'add_comment',\n    issueId: params.issue_id,\n    titleHint: params.title_hint,\n    comment: params.comment,\n    username: $json.username\n  }}];\n}\n\nif (action === 'clarification_needed' || ($json.clarification_needed && $json.clarification_needed !== null)) {\n  return [{ json: { message: `❓ ${$json.clarification_needed}` } }];\n}\n\nreturn [{ json: { message: `❌ I didn\\'t understand that command. Try:\\n• \"create issue Fix the login bug high priority\"\\n• \"update ENG-123 to In Progress\"\\n• \"assign ENG-456 to John\"\\n• \"search for open bugs\"\\n• \"add comment to ENG-789: needs more info\"` } }];"
+      },
+      "id": "handle-other-actions",
+      "name": "Handle Comment / Unknown",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1580, 720]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linear.app/graphql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "mutation UpdateIssueState($issueId: String!, $stateId: String!) {\n  issueUpdate(id: $issueId, input: { stateId: $stateId }) {\n    success\n    issue {\n      identifier\n      title\n      state { name }\n      url\n    }\n  }\n}"
+            },
+            {
+              "name": "variables",
+              "value": "={{ JSON.stringify({ issueId: $json.issueId, stateId: $json.stateId }) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "linear-update-status",
+      "name": "Linear: Update Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2060, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "linear-api-key",
+          "name": "Linear API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linear.app/graphql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "mutation AssignIssue($issueId: String!, $assigneeId: String!) {\n  issueUpdate(id: $issueId, input: { assigneeId: $assigneeId }) {\n    success\n    issue {\n      identifier\n      title\n      assignee { name }\n      url\n    }\n  }\n}"
+            },
+            {
+              "name": "variables",
+              "value": "={{ JSON.stringify({ issueId: $json.issueId, assigneeId: $json.assigneeId }) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "linear-assign",
+      "name": "Linear: Assign Issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2060, 580],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "linear-api-key",
+          "name": "Linear API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst issue = result.data?.issueUpdate?.issue;\nconst stateInfo = $('Prepare Update').first().json;\n\nif (!issue) {\n  return [{ json: { message: '❌ Failed to update issue status. Make sure the issue ID is correct.' } }];\n}\n\nreturn [{\n  json: {\n    message: `✅ **Status Updated!**\\n\\n**[${issue.identifier}](${issue.url})** ${issue.title}\\n📋 New Status: **${issue.state?.name}**\\n\\n*Updated by @${stateInfo.username}*`\n  }\n}];"
+      },
+      "id": "format-update-response",
+      "name": "Format: Updated",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2300, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst issue = result.data?.issueUpdate?.issue;\nconst assigneeInfo = $('Prepare Assign').first().json;\n\nif (!issue) {\n  return [{ json: { message: '❌ Failed to assign issue. Make sure the issue ID is correct.' } }];\n}\n\nreturn [{\n  json: {\n    message: `✅ **Issue Assigned!**\\n\\n**[${issue.identifier}](${issue.url})** ${issue.title}\\n👤 Assigned to: **${issue.assignee?.name}**\\n\\n*Assigned by @${assigneeInfo.username}*`\n  }\n}];"
+      },
+      "id": "format-assign-response",
+      "name": "Format: Assigned",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2300, 580]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://discord.com/api/v10/channels/{{ $('Extract Message').first().json.channelId }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bot {{ $vars.DISCORD_BOT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ $json.message }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "discord-reply",
+      "name": "Discord: Send Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2540, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ message: $json.message || 'Done', data: { content: $json.message || 'Done' } }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-to-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2760, 400]
+    }
+  ],
+  "connections": {
+    "Discord Webhook": {
+      "main": [
+        [
+          { "node": "Filter Out Pings", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Filter Out Pings": {
+      "main": [
+        [
+          { "node": "Extract Message", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Respond to Ping", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Extract Message": {
+      "main": [
+        [
+          { "node": "AI: Parse Command", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "AI: Parse Command": {
+      "main": [
+        [
+          { "node": "Parse AI Response", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          { "node": "Is Create Issue?", "type": "main", "index": 0 },
+          { "node": "Is Update Status?", "type": "main", "index": 0 },
+          { "node": "Is Search?", "type": "main", "index": 0 },
+          { "node": "Is Assign?", "type": "main", "index": 0 },
+          { "node": "Handle Comment / Unknown", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Is Create Issue?": {
+      "main": [
+        [
+          { "node": "Linear: Create Issue", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Is Update Status?": {
+      "main": [
+        [
+          { "node": "Linear: Get States", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Is Search?": {
+      "main": [
+        [
+          { "node": "Linear: Search Issues", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Is Assign?": {
+      "main": [
+        [
+          { "node": "Linear: Get Team Members", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Linear: Create Issue": {
+      "main": [
+        [
+          { "node": "Format: Created", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Linear: Get States": {
+      "main": [
+        [
+          { "node": "Match State", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Linear: Search Issues": {
+      "main": [
+        [
+          { "node": "Format: Search Results", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Linear: Get Team Members": {
+      "main": [
+        [
+          { "node": "Match Assignee", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Match State": {
+      "main": [
+        [
+          { "node": "Linear: Update Status", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Match Assignee": {
+      "main": [
+        [
+          { "node": "Linear: Assign Issue", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Linear: Update Status": {
+      "main": [
+        [
+          { "node": "Format: Updated", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Linear: Assign Issue": {
+      "main": [
+        [
+          { "node": "Format: Assigned", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Format: Created": {
+      "main": [
+        [
+          { "node": "Discord: Send Reply", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Format: Updated": {
+      "main": [
+        [
+          { "node": "Discord: Send Reply", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Format: Search Results": {
+      "main": [
+        [
+          { "node": "Discord: Send Reply", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Format: Assigned": {
+      "main": [
+        [
+          { "node": "Discord: Send Reply", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Handle Comment / Unknown": {
+      "main": [
+        [
+          { "node": "Discord: Send Reply", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Discord: Send Reply": {
+      "main": [
+        [
+          { "node": "Respond to Webhook", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

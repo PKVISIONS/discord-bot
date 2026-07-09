@@ -1,0 +1,22 @@
+{
+  "name": "discord-linear-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Discord DM bridge that forwards commands to n8n for Linear actions",
+  "main": "discord-bridge.js",
+  "scripts": {
+    "start": "node discord-bridge.js",
+    "patch:n8n": "node scripts/patch-workflow.js && node scripts/patch-bridge-flow.js",
+    "review:last": "node scripts/review-last-commit.js",
+    "slash:refresh": "node scripts/refresh-slash-commands.js",
+    "kb:reindex": "node scripts/reindex-knowledge.js",
+    "kb:import-discord": "node scripts/import-discord-history.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "discord.js": "^14.21.0",
+    "dotenv": "^17.4.2"
+  }
+}
