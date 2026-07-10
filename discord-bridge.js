@@ -87,6 +87,15 @@ function knowledgeStatus() {
 
   if (process.env.KNOWLEDGE_REVIEW_CHANNEL) parts.push('review on');
   if (process.env.ANSWER_VERIFY === 'true') parts.push('verify on');
+
+  try {
+    const { getAssistantHubChannelIds } = require('./lib/assistant-hub');
+    const hubs = getAssistantHubChannelIds();
+    if (hubs.length) parts.push(`assistant hub ${hubs.length} ch`);
+  } catch {
+    // ignore
+  }
+
   return parts.join(' | ');
 }
 
@@ -234,6 +243,7 @@ const {
 const { parseSalesSupportCommand } = require('./lib/sales-support-command');
 const {
   startSalesSupportFlow,
+  handleSalesSupportInteraction,
   handleSelectInteraction: handleSalesSupportSelect,
 } = require('./lib/sales-support-flow');
 const {
@@ -766,31 +776,13 @@ client.on('interactionCreate', async (interaction) => {
       if (!await safeDeferReply(interaction)) return;
 
       const question = interaction.options.getString('question');
-      console.log(`[sales-support] ${interaction.user.username}: repo=EmblemTameiaki question=${question ? 'yes' : 'default'}`);
+      console.log(
+        `[sales-support] ${interaction.user.username} in #${interaction.channel?.name || 'dm'}: `
+        + `question=${question ? 'yes' : 'default'}`,
+      );
 
       try {
-        await handleN8nCommand({
-          content: [
-            'sales support',
-            question || '',
-          ].filter(Boolean).join(' '),
-          channelId: interaction.channelId,
-          user: { id: interaction.user.id, username: interaction.user.username },
-          source: 'slash',
-          reply: async (payload) => {
-            if (typeof payload === 'string') {
-              await interaction.editReply(payload);
-              return interaction.fetchReply();
-            }
-            await interaction.editReply({
-              content: payload.content,
-              components: payload.components ?? [],
-            });
-            return interaction.fetchReply();
-          },
-          sendFollowUp: (text) => interaction.followUp({ content: text }),
-          resolveMainMessage: () => interaction.fetchReply(),
-        });
+        await handleSalesSupportInteraction(interaction);
       } catch (error) {
         console.error('[sales-support] slash failed:', error);
         await interaction.editReply('❌ Sales support briefing failed. Check bridge logs.').catch(() => {});
