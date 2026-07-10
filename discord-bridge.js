@@ -839,7 +839,7 @@ client.on('interactionCreate', async (interaction) => {
 
       try {
         const hub = await createHubSession(interaction);
-        await hub.sendLoading('⏳ Δημιουργία GitHub issue…');
+        await hub.sendLoading('⏳ Ανάγνωση & κατηγοριοποίηση issue (bug / feature / task)…');
         const result = await startGitHubIssueFlow({
           userId: interaction.user.id,
           username: interaction.user.username,
