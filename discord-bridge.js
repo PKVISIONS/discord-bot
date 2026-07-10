@@ -141,14 +141,12 @@ async function handleDeployCommand(interaction) {
   const buildType = interaction.options.getString('type', true);
   const branchInput = interaction.options.getString('branch');
 
-  // Resolve target branch + validate against the gate workflow rules
   let branch;
   if (buildType === 'qa') {
     branch = 'develop';
   } else if (buildType === 'prod') {
     branch = 'main';
   } else {
-    // DEV
     if (!branchInput) {
       await interaction.reply({
         content: '❌ **DEV** builds require a `branch` argument.\nExample: `/deploy type:dev branch:feature/my-feature`',
@@ -166,7 +164,8 @@ async function handleDeployCommand(interaction) {
     branch = branchInput;
   }
 
-  // PROD: public confirmation with buttons so the team can see it
+  const hub = await createHubSession(interaction);
+
   if (buildType === 'prod') {
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -179,55 +178,67 @@ async function handleDeployCommand(interaction) {
         .setStyle(ButtonStyle.Secondary),
     );
 
-    const confirmMsg = await interaction.reply({
-      content: `⚠️ **${interaction.user.username}** wants to trigger a **PROD** build on \`main\`. Confirm or cancel within 30 seconds.`,
-      components: [row],
-      fetchReply: true,
-    });
+    const confirmMsg = hub.inHub
+      ? await hub.reply({
+        content: `⚠️ **${interaction.user.username}** wants to trigger a **PROD** build on \`main\`. Confirm or cancel within 30 seconds.`,
+        components: [row],
+      })
+      : await interaction.reply({
+        content: `⚠️ **${interaction.user.username}** wants to trigger a **PROD** build on \`main\`. Confirm or cancel within 30 seconds.`,
+        components: [row],
+        fetchReply: true,
+      });
 
     let btn;
     try {
       btn = await confirmMsg.awaitMessageComponent({
-        filter: i => i.user.id === interaction.user.id,
+        filter: (i) => i.user.id === interaction.user.id,
         time: 30_000,
         componentType: ComponentType.Button,
       });
     } catch {
-      await interaction.editReply({ content: '⏱️ PROD confirmation timed out. Build cancelled.', components: [] });
+      const timeout = '⏱️ PROD confirmation timed out. Build cancelled.';
+      if (hub.inHub) await hub.editReply({ content: timeout, components: [] });
+      else await interaction.editReply({ content: timeout, components: [] });
       return;
     }
 
     if (btn.customId === 'deploy_prod_cancel') {
-      await btn.update({ content: `❌ PROD build cancelled by **${interaction.user.username}**.`, components: [] });
+      const cancelled = `❌ PROD build cancelled by **${interaction.user.username}**.`;
+      await btn.update({ content: cancelled, components: [] });
       return;
     }
 
-    await btn.update({ content: `🚀 Triggering **PROD** build on \`main\`…`, components: [] });
+    await btn.update({ content: '🚀 Triggering **PROD** build on `main`…', components: [] });
 
     try {
       await triggerGitHubBuild('prod', 'main');
-      await interaction.editReply(
-        `✅ **PROD** build triggered on \`main\` by **${interaction.user.username}**.\n🔗 https://github.com/${GITHUB_REPO}/actions`,
-      );
+      const success = `✅ **PROD** build triggered on \`main\` by **${interaction.user.username}**.\n🔗 https://github.com/${GITHUB_REPO}/actions`;
+      if (hub.inHub) await hub.editReply(success);
+      else await interaction.editReply(success);
     } catch (err) {
       console.error('[deploy] GitHub API error:', err);
-      await interaction.editReply(`❌ Failed to trigger PROD build: ${err.message}`);
+      const fail = `❌ Failed to trigger PROD build: ${err.message}`;
+      if (hub.inHub) await hub.editReply(fail);
+      else await interaction.editReply(fail);
     }
     return;
   }
 
-  // DEV / QA — trigger immediately
-  await interaction.deferReply();
+  if (!hub.inHub) await interaction.deferReply();
+  else await hub.sendLoading(`🚀 Triggering **${buildType.toUpperCase()}** build on \`${branch}\`…`);
 
   try {
     await triggerGitHubBuild(buildType, branch);
     const label = buildType.toUpperCase();
-    await interaction.editReply(
-      `✅ **${label}** build triggered on \`${branch}\` by **${interaction.user.username}**.\n🔗 https://github.com/${GITHUB_REPO}/actions`,
-    );
+    const success = `✅ **${label}** build triggered on \`${branch}\` by **${interaction.user.username}**.\n🔗 https://github.com/${GITHUB_REPO}/actions`;
+    if (hub.inHub) await hub.sendMain(success);
+    else await interaction.editReply(success);
   } catch (err) {
     console.error('[deploy] GitHub API error:', err);
-    await interaction.editReply(`❌ Failed to trigger ${buildType.toUpperCase()} build: ${err.message}`);
+    const fail = `❌ Failed to trigger ${buildType.toUpperCase()} build: ${err.message}`;
+    if (hub.inHub) await hub.editReply(fail);
+    else await interaction.editReply(fail);
   }
 }
 
@@ -275,6 +286,7 @@ const {
   startEscalation,
   escalationStatus,
 } = require('./lib/escalation');
+const { createHubSession } = require('./lib/assistant-hub-session');
 
 if (!DISCORD_TOKEN || !BOT_USER_ID || !N8N_WEBHOOK) {
   console.error('Missing required environment variables:');
@@ -719,10 +731,12 @@ client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === 'help') {
+      await interaction.deferReply();
+      const hub = await createHubSession(interaction);
       const parts = buildHelpMessages();
-      await interaction.reply({ content: parts[0] });
+      await hub.sendMain(parts[0]);
       for (const part of parts.slice(1)) {
-        await interaction.followUp({ content: part });
+        await hub.sendFollowUp(part);
       }
       return;
     }
@@ -739,19 +753,23 @@ client.on('interactionCreate', async (interaction) => {
 
         console.log(`[slash] ${interaction.user.username} in #${interaction.channel?.name || 'dm'}: ${commandText}`);
 
+        const hub = await createHubSession(interaction);
+        await hub.sendLoading('⏳ Επεξεργασία εντολής…');
+
         await handleN8nCommand({
           content: commandText,
           channelId: interaction.channelId,
           user: { id: interaction.user.id, username: interaction.user.username },
           source: 'slash',
           reply: (payload) => {
-            if (typeof payload === 'string') return interaction.editReply(payload);
-            return interaction.editReply({
+            if (typeof payload === 'string') return hub.sendMain(payload);
+            return hub.sendMain({
               content: payload.content,
               components: payload.components ?? [],
             });
           },
-          sendFollowUp: (text) => interaction.followUp(text),
+          sendFollowUp: (text) => hub.sendFollowUp(text),
+          resolveMainMessage: () => hub.fetchMainMessage(),
         });
         console.log('Slash command handled');
       } catch (error) {
@@ -782,7 +800,8 @@ client.on('interactionCreate', async (interaction) => {
       );
 
       try {
-        await handleSalesSupportInteraction(interaction);
+        const hub = await createHubSession(interaction);
+        await handleSalesSupportInteraction(interaction, hub);
       } catch (error) {
         console.error('[sales-support] slash failed:', error);
         await interaction.editReply('❌ Sales support briefing failed. Check bridge logs.').catch(() => {});
@@ -797,9 +816,10 @@ client.on('interactionCreate', async (interaction) => {
       console.log(`[app-status] ${interaction.user.username}: ${question ? question.slice(0, 60) : '(default)'}`);
 
       try {
-        await interaction.editReply('⏳ Building app status…');
+        const hub = await createHubSession(interaction);
+        await hub.sendLoading('⏳ Building app status…');
         const result = await runAppStatusAssistant({ question, repoFullName: GITHUB_REPO });
-        await deliverAppStatusResult({ interaction, result });
+        await deliverAppStatusResult({ interaction, result, hubSession: hub });
       } catch (error) {
         console.error('[app-status] slash failed:', error);
         await interaction.editReply(`❌ ${error.message || 'App status failed.'}`).catch(() => {});
@@ -818,6 +838,8 @@ client.on('interactionCreate', async (interaction) => {
       console.log(`[github-issue] ${interaction.user.username}: repo=EmblemTameiaki title=${truncateForLog(title)}`);
 
       try {
+        const hub = await createHubSession(interaction);
+        await hub.sendLoading('⏳ Δημιουργία GitHub issue…');
         const result = await startGitHubIssueFlow({
           userId: interaction.user.id,
           username: interaction.user.username,
@@ -826,7 +848,7 @@ client.on('interactionCreate', async (interaction) => {
           labelsRaw: labels,
         });
 
-        await interaction.editReply({
+        await hub.sendMain({
           content: result.content,
           components: result.components ?? [],
         });
@@ -844,20 +866,22 @@ client.on('interactionCreate', async (interaction) => {
       console.log(`[dev] ${interaction.user.username}: repo=EmblemTameiaki question=${truncateForLog(question)}`);
 
       try {
+        const hub = await createHubSession(interaction);
+        await hub.sendLoading('⏳ Ετοιμασία dev plan…');
         const result = await startDevAssistantFlow({
           userId: interaction.user.id,
           question,
         });
 
         if (result.components?.length) {
-          await interaction.editReply({
+          await hub.sendMain({
             content: result.content,
             components: result.components,
           });
           return;
         }
 
-        await deliverDevResult(interaction, result);
+        await deliverDevResult(interaction, result, hub);
       } catch (error) {
         console.error('[dev] slash failed:', error);
         await interaction.editReply(`❌ ${error.message}`).catch(() => {});
