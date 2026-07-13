@@ -10,7 +10,8 @@
     "review:last": "node scripts/review-last-commit.js",
     "slash:refresh": "node scripts/refresh-slash-commands.js",
     "kb:reindex": "node scripts/reindex-knowledge.js",
-    "kb:import-discord": "node scripts/import-discord-history.js"
+    "kb:import-discord": "node scripts/import-discord-history.js",
+    "linear:sync-done": "node scripts/sync-completed-tasks-to-linear.js"
   },
   "engines": {
     "node": ">=18"

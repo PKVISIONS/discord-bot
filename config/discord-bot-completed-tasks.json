@@ -1,0 +1,66 @@
+{
+  "projectLabel": "discord-bot",
+  "teamId": "a28a98ff-3d04-4ab4-bcb9-cd03f165ac2a",
+  "tasks": [
+    {
+      "title": "Discord bridge core and slash command registration",
+      "description": "Local `discord-bridge.js` bridge with slash commands: `/help`, `/n8n-linear`, `/deploy`, `/sales-support`, `/app-status`, `/github-issue`, `/dev`. DM forwarding to n8n, guild registration, and Greek `/help` catalog.\n\nCommit: `13ce0b4`"
+    },
+    {
+      "title": "n8n → Linear natural-language workflow",
+      "description": "Imported and patched n8n workflow **Discord → Linear Bot** (`fxxutl0HMJbv3p4G`) on n8n.techflowlabs.gr. Supports create/search/assign/update issues, issue summaries, and Discord-formatted replies.\n\nFiles: `discord-linear-bot.json`, `scripts/patch-workflow.js`, `scripts/patch-bridge-flow.js`"
+    },
+    {
+      "title": "Plan / go flow with Linear documents and GitHub tracking",
+      "description": "`plan fix ENG-N in repo` creates a Linear plan document on the issue, opens a GitHub tracking issue, stores pending plan in bridge memory, and executes on `go`.\n\nIncludes shortcut routing fixes, Linear `documentCreate`, and GitHub plan issue reuse.\n\nDocs: `docs/conversation-summary.md`"
+    },
+    {
+      "title": "Bridge-local AI execute (go → branch → PR)",
+      "description": "AI-driven code edits run in the bridge (not n8n): file selection, search/replace patches, branch creation, commits, and PR with `Fixes #N`. Includes timeouts, heartbeats, and 403 resilience when GitHub issue creation is blocked.\n\nFiles: `lib/github-plan-executor.js`, `lib/github-api.js`, `lib/openai.js`"
+    },
+    {
+      "title": "Commit review pipeline and #commit-summary channel",
+      "description": "AI commit reviews posted to `#commit-summary`: interactive repo/branch picker, auto-review polling, optional GitHub push webhook, persistent review store reused by sales-support.\n\nFiles: `lib/commit-review.js`, `lib/auto-commit-review.js`, `lib/commit-summary-flow.js`, `lib/webhook-server.js`"
+    },
+    {
+      "title": "/sales-support employee briefing (Greek, two-tier answers)",
+      "description": "Greek sales/support assistant with internal notes and customer-ready phrasing. Integrates knowledge docs, code activity, commit reviews, and FAQ. Reply-to-message source lookup (`πηγές` / `sources`).\n\nFiles: `lib/sales-support.js`, `lib/sales-support-delivery.js`, `lib/unified-emblem-context.js`"
+    },
+    {
+      "title": "EmblemTameiaki-Knowledge RAG and vector retrieval",
+      "description": "Knowledge repo loading via git (wiki / sales-support branches), semantic embeddings index, vendor PDF/AAR text extraction, and `npm run kb:reindex`.\n\nCommits: `13ce0b4`, `3b7c0d3`\n\nFiles: `lib/knowledge-base.js`, `lib/knowledge-indexer.js`, `lib/retrieval.js`, `lib/vector-store.js`"
+    },
+    {
+      "title": "/app-status and /dev assistants",
+      "description": "App status assistant for recent features/risks and dev assistant for implementation plans with optional `.md` attachment.\n\nFiles: `lib/app-status-assistant.js`, `lib/dev-assistant.js`, `lib/dev-assistant-flow.js`"
+    },
+    {
+      "title": "/deploy GitHub Actions trigger",
+      "description": "Role-gated `/deploy` slash command triggers EmblemTameiaki CI (`dev` / `qa` / `prod`) via GitHub Actions workflow dispatch.\n\nFile: `discord-bridge.js`"
+    },
+    {
+      "title": "/github-issue creation with AI type classification",
+      "description": "Create GitHub issues from Discord with automatic bug/feature/task classification and labels.\n\nCommit: `ae0f9ef`\n\nFiles: `lib/github-issue-flow.js`, `lib/github-issue-classifier.js`"
+    },
+    {
+      "title": "Auto-escalation for unanswered QA channel questions",
+      "description": "Watches configured Discord channels, sends hints to testers, tags dev roles, and DMs owners after timeout.\n\nFiles: `lib/escalation.js`, `lib/escalation-hint.js`, `config/escalation.json`"
+    },
+    {
+      "title": "Discord knowledge capture and promotion workflow",
+      "description": "Passive channel logging, emoji/reply promotion of solved threads, AI extraction, maintainer review channel, and PR to EmblemTameiaki-Knowledge.\n\nFiles: `lib/knowledge-capture-store.js`, `lib/knowledge-promotion.js`, `lib/knowledge-review.js`, `scripts/import-discord-history.js`"
+    },
+    {
+      "title": "Assistant hub auto-threading for slash commands",
+      "description": "Each slash command in hub channels opens a dedicated public thread; `/sales-support` answers and source links stay inside the thread.\n\nCommits: `228a581`, `e769542`, `212f86c`"
+    },
+    {
+      "title": "n8n workflow reliability fixes (parallel AI race, search fallback, summarize shortcuts)",
+      "description": "Fixed parallel AI/shortcut race on issue summaries, nested webhook body unwrap, search query fallback, `summary of ENG-N` shortcuts, and plan path without `Parse AI Response` dependency.\n\nDocs: `docs/conversation-summary.md` — Fixes deployed section"
+    },
+    {
+      "title": "OpenAI migration and environment hardening",
+      "description": "Replaced Anthropic with OpenAI (`gpt-4o`) for reviews, sales-support, dev assistant, and plan execution. Added `dotenv` override, improved startup diagnostics, and Discord message length truncation.\n\nDocs: `docs/session-summary.md`"
+    }
+  ]
+}
