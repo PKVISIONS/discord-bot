@@ -23,6 +23,11 @@ See [SETUP.md](SETUP.md) and [docs/setup-checklist.md](docs/setup-checklist.md) 
 | `/github-issue` | Create GitHub issues |
 | `/deploy` | Trigger deploy workflow |
 | `/n8n-linear` | Forward to n8n / Linear |
+| `/leads` | Find lead Excel files on Google Drive (read-only + AI match) |
+
+## Daily codebase brief
+
+With `CODEBASE_BRIEF_ENABLED=true`, the bot posts a **dev day-plan** brief to `#tameiaki-ai-briefs` every day at **09:00 Europe/Athens**. It analyzes the last 3 days of commits/issues/PRs and outputs what was done + prioritized tasks for **today** as a `.docx` file.
 
 ## Knowledge base
 

@@ -269,6 +269,7 @@ const {
 } = require('./lib/knowledge-promotion');
 const { parseAppStatusCommand } = require('./lib/app-status-command');
 const { runAppStatusAssistant, deliverAppStatusResult } = require('./lib/app-status-assistant');
+const { handleLeadsInteraction } = require('./lib/leads-flow');
 const {
   buildSlashCommandsPayload,
   buildHelpMessages,
@@ -287,6 +288,22 @@ const {
   escalationStatus,
 } = require('./lib/escalation');
 const { createHubSession } = require('./lib/assistant-hub-session');
+const {
+  isBriefEnabled,
+  startCodebaseBriefScheduler,
+} = require('./lib/codebase-brief-scheduler');
+
+function codebaseBriefStatus() {
+  if (!isBriefEnabled()) return 'off';
+  const missing = [];
+  if (!process.env.GITHUB_TOKEN) missing.push('GITHUB_TOKEN');
+  if (!process.env.OPENAI_API_KEY) missing.push('OPENAI_API_KEY');
+  if (!process.env.DISCORD_TOKEN) missing.push('DISCORD_TOKEN');
+  if (missing.length) return `off (need ${missing.join(', ')})`;
+  const hour = process.env.CODEBASE_BRIEF_HOUR ?? 9;
+  const tz = process.env.CODEBASE_BRIEF_TZ || 'Europe/Athens';
+  return `on (${hour}:00 ${tz})`;
+}
 
 if (!DISCORD_TOKEN || !BOT_USER_ID || !N8N_WEBHOOK) {
   console.error('Missing required environment variables:');
@@ -641,6 +658,7 @@ client.once('ready', async () => {
   console.log(`DMs: on | Slash: ${getSlashCommandNamesLine()} | Guilds: ${client.guilds.cache.size} | Mentions: ${DM_ONLY ? 'off' : 'on'} | Plan memory: on | Commit summary: on | GitHub execute: ${githubExecuteStatus()} | Auto commit review: ${commitReviewStatus()}`);
   console.log(`Knowledge: ${knowledgeStatus()}`);
   console.log(`Escalation: ${escalationStatus()}`);
+  console.log(`Codebase brief: ${codebaseBriefStatus()}`);
   console.log(`Forwarding to: ${N8N_WEBHOOK}`);
 
   const webhook = createWebhookServer({ discordClient: client });
@@ -648,6 +666,7 @@ client.once('ready', async () => {
 
   startAutoCommitReview(client);
   startEscalation(client);
+  startCodebaseBriefScheduler(client);
 
   if (!DISCORD_GUILD_ID) {
     console.warn('Tip: set DISCORD_GUILD_ID in .env for primary-server features (commit summary channel, escalation bind)');
@@ -833,18 +852,23 @@ client.on('interactionCreate', async (interaction) => {
 
       const title = interaction.options.getString('title', true);
       const description = interaction.options.getString('description');
+      const issueType = interaction.options.getString('type');
       const labels = interaction.options.getString('labels');
 
-      console.log(`[github-issue] ${interaction.user.username}: repo=EmblemTameiaki title=${truncateForLog(title)}`);
+      console.log(
+        `[github-issue] ${interaction.user.username}: repo=EmblemTameiaki title=${truncateForLog(title)}`
+        + ` type=${issueType || 'auto'}`,
+      );
 
       try {
         const hub = await createHubSession(interaction);
-        await hub.sendLoading('⏳ Ανάγνωση & κατηγοριοποίηση issue (bug / feature / task)…');
+        await hub.sendLoading('⏳ Translating to English & classifying issue (bug / feature / task)…');
         const result = await startGitHubIssueFlow({
           userId: interaction.user.id,
           username: interaction.user.username,
           title,
           description,
+          typeRaw: issueType,
           labelsRaw: labels,
         });
 
@@ -885,6 +909,22 @@ client.on('interactionCreate', async (interaction) => {
       } catch (error) {
         console.error('[dev] slash failed:', error);
         await interaction.editReply(`❌ ${error.message}`).catch(() => {});
+      }
+      return;
+    }
+
+    if (interaction.commandName === 'leads') {
+      if (!await safeDeferReply(interaction)) return;
+
+      const question = interaction.options.getString('question', true);
+      console.log(`[leads] ${interaction.user.username}: ${truncateForLog(question)}`);
+
+      try {
+        const hub = await createHubSession(interaction);
+        await handleLeadsInteraction(interaction, hub);
+      } catch (error) {
+        console.error('[leads] slash failed:', error);
+        await interaction.editReply(`❌ ${error.message || 'Leads lookup failed.'}`).catch(() => {});
       }
       return;
     }
