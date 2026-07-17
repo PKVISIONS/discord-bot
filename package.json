@@ -6,14 +6,24 @@
   "main": "discord-bridge.js",
   "scripts": {
     "start": "node discord-bridge.js",
+    "daemon:start": "node scripts/pm2.js start",
+    "daemon:stop": "node scripts/pm2.js stop",
+    "daemon:restart": "node scripts/pm2.js restart",
+    "daemon:status": "node scripts/pm2.js status",
+    "daemon:logs": "node scripts/pm2.js logs",
+    "daemon:save": "node scripts/pm2.js save",
+    "daemon:boot": "node scripts/pm2.js startup",
+    "daemon:setup-macos": "bash scripts/setup-macos-daemon.sh",
     "patch:n8n": "node scripts/patch-workflow.js && node scripts/patch-bridge-flow.js",
     "review:last": "node scripts/review-last-commit.js",
     "slash:refresh": "node scripts/refresh-slash-commands.js",
     "kb:reindex": "node scripts/reindex-knowledge.js",
+    "kb:sync": "node scripts/sync-knowledge-index.js",
     "kb:import-discord": "node scripts/import-discord-history.js",
     "brief:now": "node scripts/run-codebase-brief.js",
     "brief:publish": "node scripts/run-codebase-brief.js --publish",
-    "leads:test": "node scripts/test-leads-drive.js"
+    "leads:test": "node scripts/test-leads-drive.js",
+    "threads:cleanup": "node scripts/cleanup-assistant-threads.js"
   },
   "engines": {
     "node": ">=18"
@@ -23,6 +33,10 @@
     "docx": "^9.7.1",
     "dotenv": "^17.4.2",
     "googleapis": "^173.0.0",
-    "pdf-parse": "^1.1.1"
+    "pdf-parse": "^1.1.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "pm2": "^7.0.3"
   }
 }

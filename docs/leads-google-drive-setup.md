@@ -1,6 +1,9 @@
 # /leads — Google Drive setup
 
-The bot lists Excel files in a shared Google Drive folder (**read-only** — it never creates, edits, moves, or deletes anything) and uses AI to pick the best file for the employee's question.
+The bot lists Excel files in a shared Google Drive folder (**read-only**) and either:
+
+- **Scans cell contents** when you send a phone, email, AFM, or keyword
+- **Matches by filename** when you ask which file has leads for a company
 
 Default folder: `1ro5kXfGnc3VZz0Mg41DqyEN49CoQc0nF`
 
@@ -83,6 +86,20 @@ Restart the bridge after adding credentials.
 
 ## How it works
 
+**Field search** (phone, email, AFM, keyword):
+
+```
+/leads question:6912345678
+    ↓
+List all spreadsheets in folder (read-only, recursive)
+    ↓
+Download each file and search every sheet/row
+    ↓
+Discord reply with matching rows + Drive links
+```
+
+**File lookup** (natural language):
+
 ```
 /leads question:Ποιο αρχείο έχει leads για Emblem Tameiaki;
     ↓
@@ -93,13 +110,29 @@ GPT picks best filename match from the catalog
 Discord reply with file name + Google Drive link
 ```
 
+Optional limits (defaults are fine for most teams):
+
+```bash
+# LEADS_SEARCH_MAX_FILES=0 scans all files (default)
+LEADS_SEARCH_MAX_MATCHES=12
+LEADS_DRIVE_MAX_DOWNLOAD_BYTES=15728640
+```
+
 **Optional fallback:** If `LEADS_N8N_WEBHOOK` is set and Drive fails, the bot can fall back to n8n.
 
 ---
 
 ## Test
 
+```bash
+npm run leads:test
+npm run leads:test -- 6912345678
 ```
+
+In Discord:
+
+```
+/leads question:6912345678
 /leads question:Ποιο αρχείο έχει τα leads για Emblem Tameiaki;
 ```
 

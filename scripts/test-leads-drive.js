@@ -2,7 +2,14 @@
 require('dotenv').config({ override: true });
 
 const { google } = require('googleapis');
-const { listLeadSpreadsheets, loadServiceAccountCredentials, getLeadsFolderId } = require('../lib/leads-drive');
+const {
+  listLeadSpreadsheets,
+  loadServiceAccountCredentials,
+  getLeadsFolderId,
+  downloadSpreadsheetBuffer,
+} = require('../lib/leads-drive');
+const { parseLeadsQuery } = require('../lib/leads-query');
+const { searchLeadsAcrossSpreadsheets } = require('../lib/leads-search');
 
 async function main() {
   const creds = loadServiceAccountCredentials();
@@ -10,6 +17,8 @@ async function main() {
     console.error('No service account configured.');
     process.exit(1);
   }
+
+  const queryArg = process.argv.slice(2).join(' ').trim();
 
   console.log('Service account:', creds.client_email);
   console.log('Folder ID:', getLeadsFolderId());
@@ -33,6 +42,29 @@ async function main() {
   const files = await listLeadSpreadsheets();
   console.log('Spreadsheets found:', files.length);
   files.forEach((f) => console.log(`- ${f.name}${f.folderPath ? ` (${f.folderPath})` : ''}`));
+
+  if (files.length && process.argv.includes('--download-first')) {
+    const buffer = await downloadSpreadsheetBuffer(files[0]);
+    console.log(`Downloaded first file bytes: ${buffer.length}`);
+  }
+
+  if (queryArg) {
+    const parsed = parseLeadsQuery(queryArg);
+    console.log('Query mode:', parsed.mode, parsed.needle || '');
+    const result = await searchLeadsAcrossSpreadsheets(queryArg);
+    if (result.mode === 'search') {
+      console.log('\n--- search result ---\n');
+      console.log(result.result.content);
+      for (const extra of result.result.extraMessages || []) {
+        console.log('\n--- continued ---\n');
+        console.log(extra);
+      }
+    } else {
+      console.log('Would use filename matcher for this query.');
+    }
+  } else {
+    console.log('\nTip: npm run leads:test -- 6912345678');
+  }
 }
 
 main().catch((error) => {

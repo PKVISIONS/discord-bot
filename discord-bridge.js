@@ -9,6 +9,15 @@
 
 require('dotenv').config({ override: true });
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] unhandledRejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[fatal] uncaughtException:', error);
+  process.exit(1);
+});
+
 const {
   Client,
   GatewayIntentBits,
@@ -19,6 +28,7 @@ const {
   ButtonBuilder,
   ButtonStyle,
   ComponentType,
+  Events,
 } = require('discord.js');
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';
@@ -71,8 +81,10 @@ function knowledgeStatus() {
   const parts = [];
   try {
     const { stats } = require('./lib/vector-store');
+    const { knowledgeReindexStatus } = require('./lib/knowledge-reindex-sync');
     const s = stats();
-    parts.push(s.total ? `index ${s.total} chunks` : 'index empty (run kb:reindex)');
+    parts.push(s.total ? `index ${s.total} chunks` : 'index empty');
+    parts.push(knowledgeReindexStatus());
   } catch {
     parts.push('index n/a');
   }
@@ -267,6 +279,7 @@ const {
   handleSolveReaction,
   handleKbSaveCommand,
 } = require('./lib/knowledge-promotion');
+const { handleReviewApprovalReaction } = require('./lib/knowledge-review');
 const { parseAppStatusCommand } = require('./lib/app-status-command');
 const { runAppStatusAssistant, deliverAppStatusResult } = require('./lib/app-status-assistant');
 const { handleLeadsInteraction } = require('./lib/leads-flow');
@@ -292,6 +305,11 @@ const {
   isBriefEnabled,
   startCodebaseBriefScheduler,
 } = require('./lib/codebase-brief-scheduler');
+const { startKnowledgeReindexWatcher } = require('./lib/knowledge-reindex-sync');
+const {
+  startAssistantThreadCleanupScheduler,
+  cleanupStatus,
+} = require('./lib/assistant-thread-cleanup');
 
 function codebaseBriefStatus() {
   if (!isBriefEnabled()) return 'off';
@@ -331,6 +349,63 @@ const client = new Client({
   intents: clientIntents,
   partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
 });
+
+client.on(Events.ShardDisconnect, (event, shardId) => {
+  const code = event?.code ?? 'unknown';
+  console.warn(`[gateway] shard ${shardId} disconnected (code ${code}) — bot may appear offline until reconnect`);
+  scheduleGatewayRecovery('disconnect');
+});
+
+client.on(Events.ShardReconnecting, (shardId) => {
+  console.warn(`[gateway] shard ${shardId} reconnecting…`);
+  scheduleGatewayRecovery('reconnecting');
+});
+
+client.on(Events.ShardReady, (shardId, unavailableGuilds) => {
+  clearGatewayRecoveryTimer();
+  const extra = unavailableGuilds?.size ? ` (${unavailableGuilds.size} guilds unavailable)` : '';
+  console.log(`[gateway] shard ${shardId} ready${extra}`);
+});
+
+let gatewayRecoveryTimer = null;
+let gatewayRecoveryInFlight = false;
+
+function clearGatewayRecoveryTimer() {
+  if (gatewayRecoveryTimer) {
+    clearTimeout(gatewayRecoveryTimer);
+    gatewayRecoveryTimer = null;
+  }
+}
+
+function scheduleGatewayRecovery(reason) {
+  clearGatewayRecoveryTimer();
+  const delayMs = Number(process.env.GATEWAY_RECOVERY_MS || 90_000);
+  gatewayRecoveryTimer = setTimeout(() => {
+    attemptGatewayRecovery(reason).catch((error) => {
+      console.error('[gateway] recovery failed:', error.message);
+    });
+  }, delayMs);
+}
+
+async function attemptGatewayRecovery(reason) {
+  if (gatewayRecoveryInFlight || client.isReady()) return;
+
+  gatewayRecoveryInFlight = true;
+  console.warn(`[gateway] still offline after disconnect (${reason}) — forcing full reconnect`);
+
+  try {
+    client.destroy();
+  } catch {
+    // ignore destroy errors on dead connection
+  }
+
+  try {
+    await client.login(DISCORD_TOKEN);
+    console.log('[gateway] full reconnect succeeded');
+  } finally {
+    gatewayRecoveryInFlight = false;
+  }
+}
 
 async function registerSlashCommandsForGuild(rest, applicationId, guildId, commands) {
   await rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body: commands });
@@ -654,11 +729,13 @@ async function forwardToN8n(payload) {
 }
 
 client.once('ready', async () => {
-  console.log(`Logged in as ${client.user.tag} (${client.user.id})`);
+  const pm2Info = process.env.pm_id != null ? ` | PM2 id ${process.env.pm_id}` : '';
+  console.log(`Logged in as ${client.user.tag} (${client.user.id})${pm2Info}`);
   console.log(`DMs: on | Slash: ${getSlashCommandNamesLine()} | Guilds: ${client.guilds.cache.size} | Mentions: ${DM_ONLY ? 'off' : 'on'} | Plan memory: on | Commit summary: on | GitHub execute: ${githubExecuteStatus()} | Auto commit review: ${commitReviewStatus()}`);
   console.log(`Knowledge: ${knowledgeStatus()}`);
   console.log(`Escalation: ${escalationStatus()}`);
   console.log(`Codebase brief: ${codebaseBriefStatus()}`);
+  console.log(`Thread cleanup: ${cleanupStatus()}`);
   console.log(`Forwarding to: ${N8N_WEBHOOK}`);
 
   const webhook = createWebhookServer({ discordClient: client });
@@ -667,6 +744,8 @@ client.once('ready', async () => {
   startAutoCommitReview(client);
   startEscalation(client);
   startCodebaseBriefScheduler(client);
+  startKnowledgeReindexWatcher();
+  startAssistantThreadCleanupScheduler(client);
 
   if (!DISCORD_GUILD_ID) {
     console.warn('Tip: set DISCORD_GUILD_ID in .env for primary-server features (commit summary channel, escalation bind)');
