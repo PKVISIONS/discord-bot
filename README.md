@@ -55,13 +55,13 @@ See [SETUP.md](SETUP.md) and [docs/setup-checklist.md](docs/setup-checklist.md) 
 
 ## Daily codebase brief
 
-With `CODEBASE_BRIEF_ENABLED=true`, the bot posts **one** `.docx` to `#tameiaki-ai-briefs` every day at **09:00 Europe/Athens**. That single file includes:
+With `CODEBASE_BRIEF_ENABLED=true`, the bot posts **one** `.docx` to `#tameiaki-ai-briefs` every day at **09:00 Europe/Athens**. That file includes:
 
 1. **Day plan** (AI) — what was done + prioritized work for today  
-2. **Full commit list** — every commit in the lookback window (default last 3 days)  
+2. **Commits table** — Word table with commit title · author · date  
 3. **Stale branches** — full list of branches idle ≥7 days  
 
-It analyzes the last 3 days of commits/issues/PRs and outputs what was done + prioritized tasks for **today**.
+It analyzes the last 3 days of commits/issues/PRs across active branches.
 
 ## Knowledge base
 

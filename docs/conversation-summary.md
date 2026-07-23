@@ -1,384 +1,258 @@
-# Conversation Summary — Discord → Linear Bot
+# Discord Bot — Full Story of What We Built
 
-This document captures the questions, fixes, architecture decisions, and references from the development session on the **discord-linear-bot** project (`~/Projects/discord-linear-bot`).
+From late June to mid-July 2026, this project grew from a simple “send a Discord message → create a Linear issue” setup into a full internal AI assistant for Emblem Tameiaki.
 
----
+This document tells that story in plain language: what was asked for, what was built, why it was done that way, and what still needs attention.
 
-## Project overview
+Everything lives on your Mac at:
 
-| Piece | Role |
-|-------|------|
-| `discord-bridge.js` | Local Discord bridge (`/n8n-linear`, DMs, plan memory, **`go` execution**) |
-| n8n workflow **Discord → Linear Bot** | ID `fxxutl0HMJbv3p4G` on `https://n8n.techflowlabs.gr` |
-| `scripts/patch-workflow.js` | Patches Linear assign/search flows |
-| `scripts/patch-bridge-flow.js` | Patches shortcuts, plan flow, GitHub list, deploys to n8n |
-| `lib/github-plan-executor.js` | AI edits → branch → commit → PR (runs on **`go`**) |
-| `lib/github-plan-issue.js` | GitHub tracking issues for plans |
-| `lib/plan-document.js` | Markdown formatter for Linear plan documents |
-| `pending-plans.js` | In-memory plan store (`go` / `cancel` / `plan` status) |
-
-**Org:** `TechFlow-Labs` (`GITHUB_ORG`)  
-**Linear workspace:** `techflowlabs` (`LINEAR_WORKSPACE`)  
-**Linear team ENG** (team ID used in GraphQL: `a28a98ff-3d04-4ab4-bcb9-cd03f165ac2a`)
+`~/Projects/discord-linear-bot`
 
 ---
 
-## Questions asked & answers
+## How it started
 
-### 1. Can you see n8n executions yourself?
+The original goal was straightforward. You wanted a Discord bot that could talk to Linear through n8n — create issues, change status, assign people, search, and add comments. At first, only private messages were needed so you could test safely.
 
-**Yes.** Via n8n REST API with `N8N_API_KEY` and workflow ID `fxxutl0HMJbv3p4G`. Executions **1453** and **1454** were inspected directly.
+We set up the Discord bridge (`discord-bridge.js`), connected it to an n8n workflow, fixed a broken Anthropic node in n8n, and put the credentials in a `.env` file. The Linear team was ENG.
 
-**Findings:**
+The idea was simple: Discord can’t talk to Linear by itself, so the bot forwards your message to n8n, n8n uses AI to understand what you meant, and then it calls Linear.
 
-| Execution | Command | Problem |
-|-----------|---------|---------|
-| **1453** | `Give me a summary of ENG-10` | Summary path worked, but **AI ran in parallel** with shortcuts; search branch won `Respond to Webhook` first → wrong reply |
-| **1454** | `Can you see the ENG-10 issue?` | AI returned `search_issues` without `query` → Linear GraphQL 400 → empty Discord body |
+Early friction was mostly setup:
 
-**Root cause (1453):** `Bridge Execute?` false branch connected to **both** `AI: Parse Command` and `Command Shortcuts` in parallel. AI finished first and responded to the webhook before the summary path completed.
+- The bot was hard to find in Discord at first
+- Environment variables were missing when starting with `npm start`
+- Some n8n replies came back empty
+- Issue links like ENG-11 showed as plain text instead of clickable links
+- Only one Linear teammate appeared for assignment until that was fixed on the Linear side
 
----
-
-### 2. What remains of the GitHub part?
-
-**Before this session (stubs only):**
-
-- `list repos` — working via n8n
-- `plan …` — draft plan stored in bridge memory
-- `go` — stub only (“next build step”)
-
-**Built during session:**
-
-- Full **AI-driven execute** in bridge (`lib/github-plan-executor.js`)
-- Two-pass AI (file selection → search/replace edits)
-- Branch → commit → PR
-- Later: **Linear plan documents**, **GitHub tracking issues**, permission hardening
+Once DMs worked, you asked for a slash command in the server: `/n8n-linear`. That became the main way to talk to Linear from Discord.
 
 ---
 
-### 3. AI-driven edits before PR
+## Adding GitHub
 
-**Decision:** Run heavy work in the **bridge** (not n8n) to avoid webhook timeouts.
+Next came a bigger ask: the bot should not only read Linear issues — it should also look at GitHub and make code changes based on what Discord said.
 
-**Flow on `go`:**
+You wanted:
 
-1. Validate repo
-2. Ensure GitHub tracking issue (if possible)
-3. Scan repo file tree
-4. AI pass 1 — pick files to read (max 4)
-5. Read files from GitHub
-6. AI pass 2 — generate **search/replace** patches (max 3 files)
-7. Create branch → commit files → open PR with `Fixes #N` when issue exists
+- Clickable Linear issue links
+- Access to the TechFlow-Labs GitHub org
+- Auth with a personal access token (PAT), not a GitHub App, because the App setup felt too heavy
+- A “plan first, then go” flow so the bot proposes changes before applying them
 
-**New files:**
+That became the plan memory system. You could say something like “plan fix ENG-10 in wed-main-mvp repo”, review the plan, then say “go”. The bot would create a branch, apply edits, and open a PR. Plans could also be stored as Linear documents attached to the issue.
 
-- `lib/github-api.js`
-- `lib/openai.js`
-- `lib/github-plan-executor.js`
-
-**Env required for execute:**
-
-```bash
-GITHUB_TOKEN=...
-OPENAI_API_KEY=...
-# optional:
-OPENAI_MODEL=gpt-4o
-```
-
-Bridge startup shows: `GitHub execute: on` or `off (need OPENAI_API_KEY)` etc.
+A lot of debugging happened here: GitHub execute was off, n8n nodes ran in the wrong order, PATs lacked permissions (403 errors), and “go” sometimes got stuck. Those were fixed by enabling flags, repairing the workflow chain, and rotating to a stronger PAT.
 
 ---
 
-### 4. GitHub execute is off
+## Automatic commit reviews
 
-**Cause:** `OPENAI_API_KEY` was in the editor but **not saved** to `.env` on disk.
+You then wanted the bot to review every push automatically. When someone pushes code, the bot should summarize possible bugs and problems, post that summary in a Discord channel called Commit-Summary, and keep that data somewhere reusable.
 
-**Fix:** Save `.env`, restart `npm start`. Startup log was improved to list which keys are missing.
+We built a webhook server for that. On push, the AI reviews the diff, posts to Discord, and stores the review locally so other commands (especially sales support) can reuse it later.
 
----
-
-### 5. Repo name format for `plan` commands
-
-Use the **short repo name only**, not a URL or `org/repo`:
-
-```
-plan fix ENG-10 in wed-main-mvp
-```
-
-`GITHUB_ORG` (`TechFlow-Labs`) is prepended automatically → `TechFlow-Labs/wed-main-mvp`.
-
-**Does not work (today):**
-
-- `in https://github.com/TechFlow-Labs/repo`
-- `in TechFlow-Labs/repo`
-- `in repo-name` not at the **end** of the message
-
-**Optional trailing word `repo` is supported:**
-
-```
-plan fix ENG-10 in wed-main-mvp repo   ✅ → repo = wed-main-mvp
-```
+You also asked for a way to pick a repo, see its branches, and request a summary of the latest commit on a specific branch. Discord’s 2000-character message limit kept breaking long branch lists, so responses were split or shortened where needed.
 
 ---
 
-### 6. `Build Pending Plan` — Parse AI Response error
+## Sales support
 
-**Error:**
+This was a major shift. You wanted a separate command where the bot behaves like customer support and a salesperson — helping employees demo Emblem Tameiaki and answer client questions.
 
-```
-Cannot assign to read only property 'name' of object
-'Error: Node Parse AI Response hasn't been executed'
-```
+Requirements were clear:
 
-**Cause:** Shortcut `plan …` never runs AI, but `Build Pending Plan` referenced `$('Parse AI Response')`.
+- Answers in Greek
+- Sound human, credible, and natural — not robotic or repetitive
+- Client-facing text should be friendly, not technical
+- Don’t dump markdown references into the answer the employee would read to a client
+- Sources should exist only for the employee, and only when asked
 
-**Fix:** Use `Command Shortcuts` when `action === 'plan_github'`, only fall back to `Parse AI Response` on the AI path. Same fix for `Linear: Resolve Issue (Plan)` variables.
+That became `/sales-support`.
 
----
+Around the same time we switched from Anthropic to OpenAI everywhere. The FAQ file was pulled in, and later the whole `EmblemTameiaki-Knowledge` repo became the knowledge base. Docs were indexed into a vector store so the bot could search by meaning, not just keywords.
 
-### 7. Stuck on “Generating code edits with AI…”
+You refined the source behavior over a few rounds:
 
-**Cause:** Old flow sent up to 8 large files and asked for **full file rewrites** (slow, no timeout, no heartbeat).
+1. Put sources in the employee-only part of the answer
+2. Then: show sources only if asked
+3. Then: allow a plain reply to a bot message (“where did you get this?”) without typing a slash command
 
-**Fixes:**
+That reply-to-message flow is still how sources work.
 
-- Max 4 files read, 3 edited
-- **Patch-style** edits (`replacements` with `old`/`new` snippets)
-- 5-minute API timeout
-- Heartbeat updates in Discord (`Still generating edits… (20s)`)
-- Auto-fetch missing files; support **new file** creation (`old: ""`)
-
----
-
-### 8. AI tried to edit unknown file (`TranscriptionScreen.tsx`)
-
-**Cause:** AI **hallucinated** a path. `wed-main-mvp` has `components/pages/NotesScreen.tsx` etc., but **no** `TranscriptionScreen.tsx`.
-
-**Fixes:**
-
-- Resolve/fetch paths from repo tree; allow new files via empty `old`
-- Validate paths against tree; better file scoring from issue keywords
-- Clearer errors with “did you mean …?” suggestions
-
-**Note:** Wrong repo for ENG-10 may still produce poor edits — user should plan with the correct repo.
+There were quality problems too. Sometimes the bot cited the wrong docs, or answered generically even when the right markdown existed. That led to better indexing, an AI-focused knowledge branch based on `wiki-structure`, and syncing so the knowledge branch didn’t fall behind.
 
 ---
 
-### 9. Plan doc inside Linear (not GitHub)
+## Growing the knowledge base
 
-**User request:** Store plan as a document **in Linear**, linked on the issue.
+You asked how to make answers as factual as possible and how to stop losing bug/fix knowledge from Discord chats.
 
-**Implementation:**
+We built:
 
-1. `documentCreate` GraphQL mutation → Linear document on issue
-2. Discord shows `Plan doc: https://linear.app/techflowlabs/document/...`
-3. Document appears under issue **Resources**
+- A vector index of knowledge documents
+- Manual reindex (`npm run kb:sync`)
+- Automatic reindex when docs change — polling plus GitHub webhooks
+- A way to capture useful Discord bug/fix discussions into the knowledge store
 
-**Removed:** GitHub gist / `docs/linear-plans/*.md` commits (gist failed with 403 — no gist scope).
+Later, Cardlink vendor files (PDFs and related assets) were added as-is, without converting them to markdown. The indexer extracts text from those files. A zip-download approach was tried and then reverted because you didn’t want that path.
 
-**Example doc URL:**
-
-`https://linear.app/techflowlabs/document/ai-plan-eng-10-50083b099d21`
-
----
-
-### 10. GitHub issues before PR
-
-**User request:** GitHub tracking issues **before** the agent opens a PR.
-
-**Implementation (at `plan` time in n8n):**
-
-1. After Linear document → `GitHub: Create Plan Issue`
-2. Title: `[ENG-10] {summary}`
-3. Body: Linear link, plan doc link, steps, description
-4. Reuses existing open issue with `[ENG-10]` in title if found
-5. Stored on `pendingPlan`: `githubIssueNumber`, `githubIssueUrl`
-
-**On `go`:** PR body includes `Fixes #N`; bridge re-ensures issue exists.
-
-**Example:** `https://github.com/TechFlow-Labs/wed-main-mvp/issues/9`
+The reason for auto-reindex was practical: every time a new markdown doc appeared, someone had to remember to reindex. Now a new commit under `docs/` triggers it.
 
 ---
 
-### 11. GitHub API 403 on `go`
+## Developer help: `/dev`
 
-**Error:**
+You wanted a coding-focused slash command for implementation ideas, feature planning, and technical questions. That became `/dev`.
 
-```
-❌ GitHub API 403: Resource not accessible by personal access token
-```
-
-**Context:** Repo `web-video-call-transcription` — token could **read** repo and **search** issues, but **createIssue** returned 403.
-
-**Cause:** Fine-grained PAT missing **Issues: Read and write** on that specific repo (repo must be explicitly added to token).
-
-**Fix (code):** `ensureGitHubIssue` returns `null` on 403 instead of aborting; `go` continues with a warning.
-
-**Fix (token):** GitHub → Fine-grained PAT → add each target repo with:
-
-| Permission | Access |
-|------------|--------|
-| Issues | Read and write |
-| Contents | Read and write |
-| Pull requests | Read and write |
-| Metadata | Read |
+Discord’s input limit was a problem again, so longer questions use a modal. The answer is also attached as a markdown file so nothing gets cut off in the chat.
 
 ---
 
-## Fixes deployed (chronological)
+## App status and QA escalation
 
-1. **Parallel AI + shortcuts race** — `Bridge Execute?` false → only `Command Shortcuts`
-2. **Extract Message** — unwrap nested webhook `body`
-3. **Search issues fallback** — `query \|\| issue_id \|\| userMessage`
-4. **Summarize shortcuts** — `summary of ENG-10`, `can you see ENG-10?`
-5. **Bridge-local execute** — `go` no longer forwarded to n8n stub
-6. **OpenAI model** — default `gpt-4o` (set `OPENAI_MODEL` in `.env`)
-7. **AI edit performance** — patches, timeouts, heartbeats
-8. **Plan shortcut path** — no `Parse AI Response` on shortcut plans
-9. **Linear plan documents** — `documentCreate` on issue
-10. **GitHub plan issues** — created at plan time, linked on PR
-11. **403 resilience** — skip GitHub issue creation if token lacks permission
+You shared a design doc for an auto-escalation bot aimed at testers and non-developers. We split that into two steps.
+
+First we built `/app-status`: ask where the app is at, what’s new, what’s broken, and get an answer from GitHub + knowledge + commit reviews.
+
+The escalation channel piece was implemented, then reverted when you said it should wait as a second step. It was brought back later as that second step.
+
+We also put the bot on another Discord server. Slash commands don’t appear until they are registered for that guild (`npm run slash:refresh`), which caused some confusion when the bot was invited but commands weren’t visible yet.
 
 ---
 
-## Current `plan` → `go` flow
+## Help, scope, and housecleaning
 
-```
-Discord: plan fix ENG-10 in my-repo
-    ↓
-n8n: Command Shortcuts → Linear resolve issue → Build Pending Plan
-    ↓
-n8n: Plan Format Document (markdown)
-    ↓
-n8n: Linear Create Plan Document  →  linear.app/.../document/...
-    ↓
-n8n: GitHub Create Plan Issue      →  github.com/.../issues/N
-    ↓
-n8n: Plan Finalize Message → Discord (all links + steps)
-    ↓
-Bridge: stores pendingPlan in memory
+To make the bot usable for new people, we added `/help` — in Greek — with examples for every slash command. It updates as new commands appear.
 
-Discord: go
-    ↓
-Bridge: github-plan-executor
-    - ensure GitHub issue (or skip on 403)
-    - AI file pick + AI patches
-    - branch → commits → PR (Fixes #N)
-```
+You then narrowed the bot’s world: only EmblemTameiaki. Other repos were removed so the agent wouldn’t get distracted or ask about the wrong codebase.
+
+The project was also pushed to `https://github.com/PKVISIONS/discord-bot`.
 
 ---
 
-## Commands reference
+## Hub threads
 
-| Command | Where it runs |
-|---------|----------------|
-| `list repos` | n8n |
-| `plan fix ENG-10 in repo-name` | n8n |
-| `summary of ENG-10` / `can you see ENG-10?` | n8n (shortcut) |
-| Linear ops (create, assign, search, …) | n8n |
-| `go` | **bridge** (AI + GitHub) |
-| `cancel` | bridge (local) |
-| `plan` / `status` | bridge (show pending plan) |
+Once more employees started using the bot in the same channels, messages got messy and context got lost. You wanted a middle ground: not one giant shared thread for everyone, and not fully private DMs either.
 
-**Slash:** `/n8n-linear command: <text>`  
-**DM_ONLY=true** (default): plain messages only in DMs; use slash in server channels.
+The solution was hub threads. When someone runs a command, the bot opens a session thread (with date and time in the name). That keeps conversations organized without locking knowledge away from the team.
 
----
+Threads older than 24 hours are deleted automatically. That originally failed because the bot lacked Manage Threads permission. After you granted it, cleanup worked.
 
-## Environment variables
+Around this time we also improved Linear issue creation:
 
-```bash
-DISCORD_TOKEN=
-BOT_USER_ID=
-N8N_WEBHOOK=https://n8n.techflowlabs.gr/webhook/discord-linear-bot
-N8N_API_KEY=                    # n8n API + execution inspection
-DISCORD_GUILD_ID=
-LINEAR_WORKSPACE=techflowlabs
-GITHUB_ORG=TechFlow-Labs
-GITHUB_TOKEN=                     # Issues + Contents + PR write per repo
-OPENAI_API_KEY=                # required for go + commit reviews
-OPENAI_MODEL=gpt-4o             # optional
-DM_ONLY=true
-# PLAN_TTL_MINUTES=30
-```
+- The bot reads the issue carefully
+- It classifies it as bug, feature, or task
+- That classification goes in Linear’s type field (not a label)
+- Issues are always written in English, even if the employee wrote in Greek
+
+Before answering, the bot also pulls the latest knowledge/code so answers don’t go stale.
 
 ---
 
-## Key file paths (codebase)
+## Leads from Google Drive
 
-```
-discord-linear-bot/
-├── discord-bridge.js
-├── pending-plans.js
-├── lib/
-│   ├── github-api.js
-│   ├── openai.js
-│   ├── github-plan-executor.js
-│   ├── github-plan-issue.js
-│   └── plan-document.js
-├── scripts/
-│   ├── patch-workflow.js
-│   └── patch-bridge-flow.js
-├── config/discord-linear-users.json
-└── docs/conversation-summary.md   ← this file
-```
+Employees needed a way to find lead Excels without digging through Drive manually. That became `/leads`.
+
+At first it matched by filename and folder (“which file has Emblem Tameiaki leads?”). Later you asked for content search: paste a phone number (or email / AFM / keyword) and scan every Excel for a match.
+
+That required a Google service account, Drive API access, and an Excel parser. Shared Drive permissions were painful — sharing a folder wasn’t always enough — so the practical workaround was copying files into a My Drive folder the service account can actually see.
+
+There was also a parser bug: 9-digit AFM numbers were treated as phone numbers. That was fixed by checking AFM first.
 
 ---
 
-## n8n workflow nodes (plan path)
+## Morning codebase briefs
 
-```
-Extract Message → Bridge Execute? → Command Shortcuts → …
-Is Plan GitHub? → Linear: Resolve Issue (Plan) → Build Pending Plan
-  → Plan: Format Document
-  → Linear: Create Plan Document
-  → GitHub: Create Plan Issue
-  → Plan: Finalize Message
-  → Slash via bridge? → Respond to Webhook
-```
+You shared a sample Word brief and asked for the same kind of document every morning at 9:00 in `#tameiaki-ai-briefs`.
 
-**Deprecated / removed nodes:** `GitHub: Create Plan Gist`, `GitHub: Save Plan Doc`, `Linear: Attach Plan Doc` (external link attachment).
+The brief is meant for developers: what happened recently, what needs attention today, and what to tackle first. It ships as a `.docx`.
 
----
+Over several rounds you refined it:
 
-## External references
+- Keep it as one Word file, not two separate briefs
+- Include all commits from the lookback period, not just a vague summary
+- Add stale branches (no commit for a week) and list every one of them in the document
+- Make commits compact: title, author, date
+- Put those commits in a real table inside the Word doc
 
-| Resource | URL |
-|----------|-----|
-| n8n instance | https://n8n.techflowlabs.gr |
-| n8n webhook | https://n8n.techflowlabs.gr/webhook/discord-linear-bot |
-| Linear ENG-10 | https://linear.app/techflowlabs/issue/ENG-10/add-generated-references-panel-to-workspace-transcription-view |
-| OpenAI API keys | https://platform.openai.com/api-keys |
-| Linear `documentCreate` | https://api.linear.app/graphql |
-| GitHub fine-grained PATs | https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens |
-| GitHub create issue API | https://docs.github.com/rest/issues/issues#create-an-issue |
+An early bug made the brief show mostly `[QA]` commits. That happened because GitHub search favored main/develop. We changed it to walk active branches and collect commits from all of them.
+
+We briefly tried HTML for the commit table, then a separate HTML attachment. Your final ask was clear: keep the brief as a doc, and put the table inside the Word file.
 
 ---
 
-## Known limitations / follow-ups
+## Keeping the bot online
 
-- Plan store is **in-memory** — lost on bridge restart (30 min TTL)
-- Re-planning same issue creates **new Linear documents** (no upsert yet)
-- AI may pick wrong files or hallucinate paths on unfamiliar repos
-- Fine-grained PAT must list **each repo** explicitly
-- `go` execute is **not** in n8n — requires bridge running locally with keys
-- ENG-10 may belong in a different repo than `wed-main-mvp` (transcription work)
+Running `npm start` by hand got old. You wanted the bot always online unless the Mac restarts or sleeps.
 
----
+We set up PM2 to keep the process alive and restart it on crashes, plus macOS LaunchAgent / healthcheck scripts so it comes back after reboot or wake. Discord gateway reconnects were also improved, because short disconnects were making the bot flicker offline.
 
-## Deploy commands
-
-```bash
-# Patch live n8n workflow
-npm run patch:n8n
-# or
-node scripts/patch-workflow.js && node scripts/patch-bridge-flow.js
-
-# Run bridge
-npm start
-```
+Important detail: this still runs locally on your Mac. PM2 is not a cloud host — it’s a process manager on your machine. Config is in `ecosystem.config.cjs`.
 
 ---
 
-*Generated from the Cursor agent session covering Discord → Linear → GitHub plan/execute development.*
+## What the bot can do today
+
+| Command / feature | What it’s for |
+|---|---|
+| `/n8n-linear` | Create and manage Linear issues |
+| `/sales-support` | Greek sales & customer support answers from knowledge + code |
+| `/dev` | Coding ideas and implementation plans (with `.md` attachment) |
+| `/app-status` | What’s going on with the app right now |
+| `/leads` | Find lead Excels by name, or search inside them by phone/email/AFM |
+| `/help` | Greek examples for every command |
+| Auto commit review | On push, posts a review to Commit-Summary |
+| Daily brief | 9:00 AM Word brief in tameiaki-ai-briefs |
+| Thread cleanup | Deletes hub threads older than 24 hours |
+| Knowledge reindex | Keeps new markdown docs searchable automatically |
+| Reply for sources | Reply to a bot answer and ask where it came from |
+
+---
+
+## Why things were built this way
+
+A few choices shaped the whole system:
+
+- **OpenAI instead of Anthropic** — you asked for that switch, so it was applied across the board.
+- **PAT instead of GitHub App** — simpler for your setup, even if Apps are “more proper” long term.
+- **Vector search for knowledge** — with lots of docs, meaning-based search beats filename guessing.
+- **Hub threads** — keeps employee chats tidy without hiding them completely.
+- **Service account for Drive** — employees don’t need to log into Google through the bot.
+- **Word briefs** — matches how your team already reads day plans.
+- **Greek for people, English for Linear** — employees talk to clients in Greek; engineering tickets stay in English.
+- **EmblemTameiaki only** — one product focus, fewer wrong answers.
+
+---
+
+## Still open / deferred
+
+A few things were started and then paused, or need a follow-up:
+
+- Full QA escalation flow from the original design doc (partially done, then stepped back)
+- Zip-based knowledge import (tried, then reverted)
+- Occasional PM2 permission issues on the Mac (`~/.pm2`)
+- Cleaner Google Shared Drive access for the leads service account (current workaround: My Drive copies)
+
+---
+
+## Security reminder
+
+During this work, real credentials were pasted into chat (Discord token, Linear key, GitHub PATs, n8n key, Google service account). If this summary or the chat history is shared widely, those secrets should be rotated.
+
+---
+
+## Bottom line
+
+What began as a personal Linear DM bot is now an always-on Discord assistant that:
+
+- manages Linear issues
+- reviews GitHub commits
+- answers sales and support questions from a living knowledge base
+- helps with development questions
+- finds leads in Google Drive Excels
+- publishes a daily developer brief
+- keeps its own session threads clean
+
+All of it runs from your local project folder, kept alive by PM2.
