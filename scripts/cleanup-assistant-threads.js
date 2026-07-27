@@ -9,7 +9,7 @@
 
 require('dotenv').config({ override: true });
 
-const { Client, GatewayIntentBits, Partials } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Events } = require('discord.js');
 const { cleanupAssistantHubThreads, cleanupStatus } = require('../lib/assistant-thread-cleanup');
 
 async function main() {
@@ -25,7 +25,7 @@ async function main() {
   });
 
   await new Promise((resolve, reject) => {
-    client.once('ready', resolve);
+    client.once(Events.ClientReady, resolve);
     client.once('error', reject);
     client.login(token);
   });

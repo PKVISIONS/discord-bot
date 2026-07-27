@@ -9,7 +9,7 @@
 
 require('dotenv').config();
 
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { runDailyCodebaseBrief } = require('../lib/codebase-brief');
 const { publishDailyCodebaseBrief } = require('../lib/codebase-brief-scheduler');
 
@@ -28,7 +28,7 @@ async function main() {
 
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   await client.login(token);
-  await new Promise((resolve) => client.once('ready', resolve));
+  await new Promise((resolve) => client.once(Events.ClientReady, resolve));
 
   await publishDailyCodebaseBrief(client, { force: true, onLog: console.log });
   await client.destroy();

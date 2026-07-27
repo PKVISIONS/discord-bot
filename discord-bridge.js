@@ -728,7 +728,7 @@ async function forwardToN8n(payload) {
   return { ok: response.ok, status: response.status, responseText, responseData };
 }
 
-client.once('ready', async () => {
+client.once(Events.ClientReady, async () => {
   const pm2Info = process.env.pm_id != null ? ` | PM2 id ${process.env.pm_id}` : '';
   console.log(`Logged in as ${client.user.tag} (${client.user.id})${pm2Info}`);
   console.log(`DMs: on | Slash: ${getSlashCommandNamesLine()} | Guilds: ${client.guilds.cache.size} | Mentions: ${DM_ONLY ? 'off' : 'on'} | Plan memory: on | Commit summary: on | GitHub execute: ${githubExecuteStatus()} | Auto commit review: ${commitReviewStatus()}`);
