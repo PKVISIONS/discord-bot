@@ -9,35 +9,6 @@
 
 require('dotenv').config({ override: true });
 
-// #region agent log
-const { agentLog } = require('./lib/debug-log');
-try {
-  const fsDbg = require('fs');
-  const pathDbg = require('path');
-  const envPathDbg = process.env.KNOWLEDGE_REPO_PATH || '';
-  agentLog({
-    runId: 'run1',
-    hypothesisId: 'H1,H2',
-    location: 'discord-bridge.js:12',
-    message: 'bridge boot marker + knowledge env state',
-    data: {
-      buildMarker: 'knowledge-boot-v1',
-      cwd: process.cwd(),
-      onRailway: Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID),
-      knowledgeRepoPathEnv: envPathDbg,
-      knowledgeRepoPathExists: envPathDbg ? fsDbg.existsSync(envPathDbg) : null,
-      containerFallbackExists: fsDbg.existsSync(pathDbg.join(process.cwd(), 'data', 'EmblemTameiaki-Knowledge')),
-      knowledgeBranchEnv: process.env.KNOWLEDGE_REPO_BRANCH || '',
-      knowledgeGithubRepoEnv: process.env.KNOWLEDGE_GITHUB_REPO || '',
-      githubTokenPresent: Boolean(process.env.GITHUB_TOKEN),
-      openaiKeyPresent: Boolean(process.env.OPENAI_API_KEY),
-    },
-  });
-} catch (e) {
-  agentLog({ runId: 'run1', hypothesisId: 'H1,H2', location: 'discord-bridge.js:12', message: 'boot marker failed', data: { error: e.message } });
-}
-// #endregion
-
 // On Railway (or when the knowledge checkout is missing), clone/update it before boot.
 try {
   const fs = require('fs');

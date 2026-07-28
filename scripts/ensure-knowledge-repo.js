@@ -72,58 +72,19 @@ function ensureKnowledgeRepo() {
   const fullName = knowledgeRepoFullName();
   const branch = preferredBranch();
 
-  // #region agent log
-  const { agentLog } = require('../lib/debug-log');
-  let gitVersion = null;
-  let gitError = null;
-  try {
-    gitVersion = git(process.cwd(), ['--version']);
-  } catch (e) {
-    gitError = e.message;
-  }
-  agentLog({
-    runId: 'run1',
-    hypothesisId: 'H2,H3',
-    location: 'scripts/ensure-knowledge-repo.js:70',
-    message: 'ensureKnowledgeRepo entry',
-    data: {
-      resolvedRoot: root,
-      envPath: process.env.KNOWLEDGE_REPO_PATH || '',
-      fullName,
-      branch,
-      tokenPresent: Boolean(process.env.GITHUB_TOKEN),
-      alreadyCheckedOut: hasKnowledgeCheckout(root),
-      gitVersion,
-      gitError,
-    },
-  });
-  // #endregion
-
   fs.mkdirSync(path.dirname(root), { recursive: true });
 
   if (!hasKnowledgeCheckout(root)) {
     console.log(`[knowledge-boot] cloning ${fullName} → ${root}`);
-    // #region agent log
-    try {
-      git(process.cwd(), ['clone', '--depth', '50', '--branch', branch, cloneUrl(fullName), root]);
-      agentLog({
-        runId: 'run1',
-        hypothesisId: 'H3,H4',
-        location: 'scripts/ensure-knowledge-repo.js:105',
-        message: 'clone finished',
-        data: { root, docsExists: fs.existsSync(path.join(root, 'docs')), gitExists: fs.existsSync(path.join(root, '.git')) },
-      });
-    } catch (cloneError) {
-      agentLog({
-        runId: 'run1',
-        hypothesisId: 'H3,H4',
-        location: 'scripts/ensure-knowledge-repo.js:105',
-        message: 'clone FAILED',
-        data: { root, fullName, branch, error: String(cloneError.message || cloneError).replace(/x-access-token:[^@]+@/g, 'x-access-token:***@') },
-      });
-      throw cloneError;
-    }
-    // #endregion
+    git(process.cwd(), [
+      'clone',
+      '--depth',
+      '50',
+      '--branch',
+      branch,
+      cloneUrl(fullName),
+      root,
+    ]);
   } else {
     console.log(`[knowledge-boot] updating ${root} (branch ${branch})`);
     try {
