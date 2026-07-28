@@ -9,6 +9,21 @@
 
 require('dotenv').config({ override: true });
 
+// On Railway (or when the knowledge checkout is missing), clone/update it before boot.
+try {
+  const fs = require('fs');
+  const path = require('path');
+  const { ensureKnowledgeRepo, knowledgeRoot } = require('./scripts/ensure-knowledge-repo');
+  const root = knowledgeRoot();
+  const missing = !fs.existsSync(path.join(root, '.git')) && !fs.existsSync(path.join(root, 'docs'));
+  const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+  if (missing || onRailway) {
+    ensureKnowledgeRepo();
+  }
+} catch (error) {
+  console.warn(`[knowledge-boot] could not prepare knowledge repo: ${error.message}`);
+}
+
 process.on('unhandledRejection', (reason) => {
   console.error('[fatal] unhandledRejection:', reason);
 });
@@ -829,7 +844,7 @@ client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === 'help') {
-      await interaction.deferReply();
+      if (!await safeDeferReply(interaction)) return;
       const hub = await createHubSession(interaction);
       const parts = buildHelpMessages();
       await hub.sendMain(parts[0]);
