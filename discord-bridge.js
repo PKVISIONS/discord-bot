@@ -9,6 +9,50 @@
 
 require('dotenv').config({ override: true });
 
+// #region agent log
+const { agentLog } = require('./lib/debug-log');
+try {
+  const fsDbg = require('fs');
+  const pathDbg = require('path');
+  const envPathDbg = process.env.KNOWLEDGE_REPO_PATH || '';
+  agentLog({
+    runId: 'run1',
+    hypothesisId: 'H1,H2',
+    location: 'discord-bridge.js:12',
+    message: 'bridge boot marker + knowledge env state',
+    data: {
+      buildMarker: 'knowledge-boot-v1',
+      cwd: process.cwd(),
+      onRailway: Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID),
+      knowledgeRepoPathEnv: envPathDbg,
+      knowledgeRepoPathExists: envPathDbg ? fsDbg.existsSync(envPathDbg) : null,
+      containerFallbackExists: fsDbg.existsSync(pathDbg.join(process.cwd(), 'data', 'EmblemTameiaki-Knowledge')),
+      knowledgeBranchEnv: process.env.KNOWLEDGE_REPO_BRANCH || '',
+      knowledgeGithubRepoEnv: process.env.KNOWLEDGE_GITHUB_REPO || '',
+      githubTokenPresent: Boolean(process.env.GITHUB_TOKEN),
+      openaiKeyPresent: Boolean(process.env.OPENAI_API_KEY),
+    },
+  });
+} catch (e) {
+  agentLog({ runId: 'run1', hypothesisId: 'H1,H2', location: 'discord-bridge.js:12', message: 'boot marker failed', data: { error: e.message } });
+}
+// #endregion
+
+// On Railway (or when the knowledge checkout is missing), clone/update it before boot.
+try {
+  const fs = require('fs');
+  const path = require('path');
+  const { ensureKnowledgeRepo, knowledgeRoot } = require('./scripts/ensure-knowledge-repo');
+  const root = knowledgeRoot();
+  const missing = !fs.existsSync(path.join(root, '.git')) && !fs.existsSync(path.join(root, 'docs'));
+  const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+  if (missing || onRailway) {
+    ensureKnowledgeRepo();
+  }
+} catch (error) {
+  console.warn(`[knowledge-boot] could not prepare knowledge repo: ${error.message}`);
+}
+
 process.on('unhandledRejection', (reason) => {
   console.error('[fatal] unhandledRejection:', reason);
 });
@@ -829,7 +873,7 @@ client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === 'help') {
-      await interaction.deferReply();
+      if (!await safeDeferReply(interaction)) return;
       const hub = await createHubSession(interaction);
       const parts = buildHelpMessages();
       await hub.sendMain(parts[0]);

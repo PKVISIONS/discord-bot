@@ -1,0 +1,3 @@
+# Ensure git is available so EmblemTameiaki-Knowledge can be cloned at boot.
+[phases.setup]
+nixPkgs = ["nodejs_20", "git"]
