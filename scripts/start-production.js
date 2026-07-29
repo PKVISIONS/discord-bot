@@ -3,5 +3,10 @@
  * Railway / production entry: clone knowledge repo, then start the Discord bridge.
  */
 
-require('./ensure-knowledge-repo').ensureKnowledgeRepo();
+try {
+  require('./ensure-knowledge-repo').ensureKnowledgeRepo();
+} catch (error) {
+  console.error(`[knowledge-boot] skipping knowledge repo sync: ${error.message}`);
+}
+
 require('../discord-bridge');
