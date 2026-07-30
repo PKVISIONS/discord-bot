@@ -288,7 +288,7 @@ async function handleDeployCommand(interaction) {
 const pendingPlans = require('./pending-plans');
 const { executePlan } = require('./lib/github-plan-executor');
 const { createWebhookServer } = require('./lib/webhook-server');
-const { reportOpsError, setN8nForwarder } = require('./lib/ops-errors');
+const { reportOpsError, setN8nForwarder, formatN8nFailureReply, runIntentionalN8nFailureTest } = require('./lib/ops-errors');
 const { startAutoCommitReview } = require('./lib/auto-commit-review');
 const { parseCommitSummaryCommand } = require('./lib/commit-summary-command');
 const {
@@ -731,7 +731,7 @@ async function handleN8nCommand({
       retryPayload: resolved.payload,
       context: { username: user.username, channelId, source },
     });
-    await reply('Something went wrong talking to n8n. Check the bridge logs.');
+    await reply(formatN8nFailureReply('unreachable'));
     return;
   }
 
@@ -748,7 +748,7 @@ async function handleN8nCommand({
       retryPayload: resolved.payload,
       context: { username: user.username, channelId, source },
     });
-    await reply('n8n ran but returned no message. Check n8n executions.');
+    await reply(formatN8nFailureReply('empty'));
     return;
   }
 
@@ -930,7 +930,34 @@ client.on('interactionCreate', async (interaction) => {
             source: 'slash',
           },
         });
-        await interaction.editReply('Could not reach n8n. Is the workflow active?').catch(() => {});
+        await interaction.editReply(formatN8nFailureReply('unreachable')).catch(() => {});
+      }
+      return;
+    }
+
+    if (interaction.commandName === 'ops-test') {
+      if (!hasDeployPermission(interaction.member)) {
+        await interaction.reply({
+          content: '⛔ You need the **Developer** or **Admin** role to run `/ops-test`.',
+          ephemeral: true,
+        });
+        return;
+      }
+      if (!await safeDeferReply(interaction)) return;
+
+      try {
+        const hub = await createHubSession(interaction);
+        await hub.sendLoading('🧪 Προκαλώ επίτηδες αποτυχία n8n…');
+        const result = await runIntentionalN8nFailureTest({
+          username: interaction.user.username,
+          channelId: interaction.channelId,
+          source: 'ops-test',
+        });
+        console.log(`[ops-test] intentional fail logged as ${result.entry.id} (HTTP ${result.status})`);
+        await hub.sendMain(result.reply);
+      } catch (error) {
+        console.error('[ops-test] failed:', error);
+        await interaction.editReply(`❌ ops-test failed: ${error.message || error}`).catch(() => {});
       }
       return;
     }
@@ -1194,7 +1221,7 @@ client.on('messageCreate', async (message) => {
         source: isDM ? 'dm' : 'mention',
       },
     });
-    await message.reply('Could not reach n8n. Is the workflow active and the webhook URL correct?');
+    await message.reply(formatN8nFailureReply('unreachable'));
   }
 });
 

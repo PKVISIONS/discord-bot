@@ -57,6 +57,16 @@ http://localhost:3847/ops/
 
 Use **Add sample error** in the UI to try the flow without a real outage.
 
+## Test from Discord
+
+With **Developer** or **Admin** role:
+
+```text
+/ops-test
+```
+
+That intentionally fails the n8n call path, posts a plain-language Discord reply with the `/ops` link, and logs a card on the Ops page.
+
 ## Env
 
 | Variable | Default | Meaning |
