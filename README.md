@@ -40,6 +40,16 @@ The bot will stay online **unless the Mac sleeps or reboots**. After wake, it re
 
 See [SETUP.md](SETUP.md) and [docs/setup-checklist.md](docs/setup-checklist.md) for full configuration.
 
+## Ops GUI (error handler trial)
+
+On **Railway**, open the public service URL + `/ops/`:
+
+```text
+https://YOUR-RAILWAY-DOMAIN/ops/
+```
+
+(Same host as `WEBHOOK_PUBLIC_URL` / GitHub webhook.) Set `OPS_GUI_TOKEN` in Railway variables and append `?token=…`. Plain-language errors from n8n / deploy / plan execute, with **Retry** and **Dismiss**. Details: [docs/ops-gui.md](docs/ops-gui.md).
+
 ## Main commands
 
 | Command | Purpose |
