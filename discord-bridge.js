@@ -246,14 +246,6 @@ async function handleDeployCommand(interaction) {
     } catch (err) {
       console.error('[deploy] GitHub API error:', err);
       const fail = `❌ Failed to trigger PROD build: ${err.message}`;
-      reportOpsError('deploy_failed', {
-        detail: err.message || String(err),
-        context: {
-          username: interaction.user.username,
-          channelId: interaction.channelId,
-          source: 'deploy-prod',
-        },
-      });
       if (hub.inHub) await hub.editReply(fail);
       else await interaction.editReply(fail);
     }
@@ -272,14 +264,6 @@ async function handleDeployCommand(interaction) {
   } catch (err) {
     console.error('[deploy] GitHub API error:', err);
     const fail = `❌ Failed to trigger ${buildType.toUpperCase()} build: ${err.message}`;
-    reportOpsError('deploy_failed', {
-      detail: err.message || String(err),
-      context: {
-        username: interaction.user.username,
-        channelId: interaction.channelId,
-        source: `deploy-${buildType}`,
-      },
-    });
     if (hub.inHub) await hub.editReply(fail);
     else await interaction.editReply(fail);
   }
@@ -288,7 +272,6 @@ async function handleDeployCommand(interaction) {
 const pendingPlans = require('./pending-plans');
 const { executePlan } = require('./lib/github-plan-executor');
 const { createWebhookServer } = require('./lib/webhook-server');
-const { reportOpsError, setN8nForwarder } = require('./lib/ops-errors');
 const { startAutoCommitReview } = require('./lib/auto-commit-review');
 const { parseCommitSummaryCommand } = require('./lib/commit-summary-command');
 const {
@@ -713,10 +696,6 @@ async function handleN8nCommand({
       await reply(result.message);
     } catch (error) {
       console.error('[execute] failed:', error);
-      reportOpsError('plan_execute_failed', {
-        detail: error.message || String(error),
-        context: { username: user.username, channelId, source },
-      });
       await reply(`❌ ${error.message || 'Plan execution failed.'}`);
     }
     return;
@@ -726,11 +705,6 @@ async function handleN8nCommand({
 
   if (!ok) {
     console.error(`n8n webhook failed (${status}): ${responseText}`);
-    reportOpsError('n8n_unreachable', {
-      detail: `HTTP ${status}: ${String(responseText || '').slice(0, 500)}`,
-      retryPayload: resolved.payload,
-      context: { username: user.username, channelId, source },
-    });
     await reply('Something went wrong talking to n8n. Check the bridge logs.');
     return;
   }
@@ -743,11 +717,6 @@ async function handleN8nCommand({
   const replyText = extractReplyText(responseData, responseText);
   if (!replyText) {
     console.error('n8n returned empty body:', responseText || '(empty)');
-    reportOpsError('n8n_empty', {
-      detail: String(responseText || '(empty)').slice(0, 500),
-      retryPayload: resolved.payload,
-      context: { username: user.username, channelId, source },
-    });
     await reply('n8n ran but returned no message. Check n8n executions.');
     return;
   }
@@ -774,8 +743,6 @@ async function forwardToN8n(payload) {
   return { ok: response.ok, status: response.status, responseText, responseData };
 }
 
-setN8nForwarder(forwardToN8n);
-
 client.once(Events.ClientReady, async () => {
   const pm2Info = process.env.pm_id != null ? ` | PM2 id ${process.env.pm_id}` : '';
   console.log(`Logged in as ${client.user.tag} (${client.user.id})${pm2Info}`);
@@ -784,7 +751,6 @@ client.once(Events.ClientReady, async () => {
   console.log(`Escalation: ${escalationStatus()}`);
   console.log(`Codebase brief: ${codebaseBriefStatus()}`);
   console.log(`Thread cleanup: ${cleanupStatus()}`);
-  console.log(`Ops GUI: ${process.env.OPS_GUI_ENABLED === 'false' ? 'off' : 'on'}`);
   console.log(`Forwarding to: ${N8N_WEBHOOK}`);
 
   const webhook = createWebhookServer({ discordClient: client });
@@ -921,15 +887,6 @@ client.on('interactionCreate', async (interaction) => {
         console.log('Slash command handled');
       } catch (error) {
         console.error('Failed to handle slash command:', error);
-        reportOpsError('n8n_handler', {
-          detail: error.message || String(error),
-          retryable: false,
-          context: {
-            username: interaction.user.username,
-            channelId: interaction.channelId,
-            source: 'slash',
-          },
-        });
         await interaction.editReply('Could not reach n8n. Is the workflow active?').catch(() => {});
       }
       return;
@@ -941,14 +898,6 @@ client.on('interactionCreate', async (interaction) => {
         await handleDeployCommand(interaction);
       } catch (err) {
         console.error('[deploy] Unhandled error:', err);
-        reportOpsError('deploy_failed', {
-          detail: err.message || String(err),
-          context: {
-            username: interaction.user.username,
-            channelId: interaction.channelId,
-            source: 'deploy',
-          },
-        });
         await respondInteractionError(interaction, '❌ Something went wrong. Check the bridge logs.');
       }
       return;
@@ -1185,15 +1134,6 @@ client.on('messageCreate', async (message) => {
     console.log('Message handled');
   } catch (error) {
     console.error('Failed to handle message:', error);
-    reportOpsError('n8n_handler', {
-      detail: error.message || String(error),
-      retryable: false,
-      context: {
-        username: message.author.username,
-        channelId: message.channel.id,
-        source: isDM ? 'dm' : 'mention',
-      },
-    });
     await message.reply('Could not reach n8n. Is the workflow active and the webhook URL correct?');
   }
 });
