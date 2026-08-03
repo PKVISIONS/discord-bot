@@ -322,6 +322,10 @@ const {
 } = require('./lib/codebase-brief-scheduler');
 const { startKnowledgeReindexWatcher } = require('./lib/knowledge-reindex-sync');
 const {
+  isMailerLiteFlowEnabled,
+  handleMailerLiteMessage,
+} = require('./lib/mailerlite-campaign-flow');
+const {
   startAssistantThreadCleanupScheduler,
   cleanupStatus,
 } = require('./lib/assistant-thread-cleanup');
@@ -1070,6 +1074,15 @@ client.on('messageCreate', async (message) => {
       handleChannelMessageWithHint(message);
     } catch (error) {
       console.error('[escalation] failed to track message:', error.message);
+    }
+  }
+
+  // MailerLite campaign editing: passive bilingual listener on all channel messages.
+  if (isMailerLiteFlowEnabled() && !isDM) {
+    try {
+      if (await handleMailerLiteMessage(message)) return;
+    } catch (error) {
+      console.error('[mailerlite] handler failed:', error.message);
     }
   }
 
