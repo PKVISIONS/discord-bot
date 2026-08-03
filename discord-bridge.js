@@ -1006,6 +1006,7 @@ client.on('interactionCreate', async (interaction) => {
           typeRaw: issueType,
           labelsRaw: labels,
           repoFullName: CAMPAIGN_STUDIO_REPO,
+          githubToken: process.env.CAMPAIGN_STUDIO_GITHUB_TOKEN || undefined,
         });
 
         await hub.sendMain({
