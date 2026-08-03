@@ -54,6 +54,7 @@ const LINEAR_WORKSPACE = process.env.LINEAR_WORKSPACE || 'techflowlabs';
 const DM_ONLY = process.env.DM_ONLY !== 'false';
 
 const GITHUB_REPO = process.env.GITHUB_REPO || 'semantic-software/EmblemTameiaki';
+const CAMPAIGN_STUDIO_REPO = process.env.CAMPAIGN_STUDIO_REPO || 'TechFlow-Labs/campaign-studio';
 const DEPLOY_ROLES = ['Developer', 'Admin'];
 
 function githubExecuteStatus() {
@@ -976,6 +977,43 @@ client.on('interactionCreate', async (interaction) => {
         });
       } catch (error) {
         console.error('[github-issue] slash failed:', error);
+        await interaction.editReply(`❌ ${error.message}`).catch(() => {});
+      }
+      return;
+    }
+
+    if (interaction.commandName === 'campaign-issues') {
+      if (!await safeDeferReply(interaction)) return;
+
+      const title = interaction.options.getString('title', true);
+      const description = interaction.options.getString('description');
+      const issueType = interaction.options.getString('type');
+      const labels = interaction.options.getString('labels');
+
+      console.log(
+        `[campaign-issues] ${interaction.user.username}: repo=${CAMPAIGN_STUDIO_REPO} title=${truncateForLog(title)}`
+        + ` type=${issueType || 'auto'}`,
+      );
+
+      try {
+        const hub = await createHubSession(interaction);
+        await hub.sendLoading('⏳ Translating to English & classifying issue (bug / feature / task)…');
+        const result = await startGitHubIssueFlow({
+          userId: interaction.user.id,
+          username: interaction.user.username,
+          title,
+          description,
+          typeRaw: issueType,
+          labelsRaw: labels,
+          repoFullName: CAMPAIGN_STUDIO_REPO,
+        });
+
+        await hub.sendMain({
+          content: result.content,
+          components: result.components ?? [],
+        });
+      } catch (error) {
+        console.error('[campaign-issues] slash failed:', error);
         await interaction.editReply(`❌ ${error.message}`).catch(() => {});
       }
       return;
